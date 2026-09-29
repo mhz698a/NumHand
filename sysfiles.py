@@ -1,11 +1,26 @@
 import uuid
 import json
 import re
+import hashlib
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, Qt
 
+import syswall
+
 BACKUP_FILENAME = ".__file_manager_backup__.json"
+
+
+def compute_file_hash(file_path, chunk_size=65536):
+    """Calcula el hash SHA-256 de un archivo."""
+    try:
+        hasher = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception:
+        return None
 
 
 class WorkerSignals(QObject):
@@ -233,8 +248,24 @@ class FileUtils:
         progress_dialog.canceled.connect(lambda: None)
         self.thread_pool.start(task)
 
+    def check_files_locked(self, parent, file_paths):
+        locking_apps = syswall.get_locking_processes(file_paths)
+        if locking_apps:
+            apps_str = "\n• ".join(locking_apps)
+            QMessageBox.warning(
+                parent,
+                "Archivos en uso",
+                f"Los siguientes programas están bloqueando archivos que se intentan modificar:\n\n• {apps_str}\n\nPor favor, cierra las aplicaciones manualmente antes de proceder."
+            )
+            return True
+        return False
+
     def apply_order(self, parent, model):
         if not parent.folder or not model.files:
+            return
+
+        file_paths = [f.path for f in model.files]
+        if self.check_files_locked(parent, file_paths):
             return
 
         progress_dialog = QProgressDialog("Aplicando numeración...", "Cancelar", 0, 0, parent)
@@ -267,9 +298,54 @@ class FileUtils:
 
         self.thread_pool.start(task)
 
+    def recover_failed_names(self, parent, model):
+        if not parent.folder or not parent.folder.exists():
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
+            return
+
+        backup_path = parent.folder / BACKUP_FILENAME
+        if not backup_path.exists():
+            QMessageBox.information(
+                parent,
+                "Información",
+                "No hay respaldos pendientes por aplicar."
+            )
+            return
+
+        confirm = QMessageBox.question(
+            parent,
+            "Recuperar nombres fallidos",
+            "Se ha detectado un respaldo pendiente. ¿Deseas intentar recuperar los nombres originales/fallidos?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if confirm == QMessageBox.StandardButton.Yes:
+            success = self.recover_backup_sync(parent.folder)
+            if success:
+                QMessageBox.information(
+                    parent,
+                    "Éxito",
+                    "Recuperación del respaldo completada correctamente."
+                )
+                self.load_folder(parent, model)
+            else:
+                QMessageBox.critical(
+                    parent,
+                    "Error",
+                    "No se pudo completar la recuperación del respaldo."
+                )
+
     def reset_numeration_folder(self, parent, model):
         if not parent.folder:
             QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
+            return
+
+        all_entries = [
+            f for f in parent.folder.iterdir()
+            if f.is_file() and not f.name.startswith(".__file_manager__")
+        ]
+        if self.check_files_locked(parent, all_entries):
             return
 
         confirm = QMessageBox.question(
@@ -327,6 +403,9 @@ class FileUtils:
 
         file_entry = model.files[row]
         if not new_base_name:
+            return False
+
+        if self.check_files_locked(parent, [file_entry.path]):
             return False
 
         old_path = file_entry.path
@@ -414,6 +493,7 @@ class FileUtils:
             original_path = Path(item["original_path"])
             temporary_path = Path(item["temporary_path"])
             final_path = Path(item["final_path"])
+            sha256_hash = item.get("sha256")
 
             current_path = None
             if temporary_path.exists():
@@ -427,8 +507,34 @@ class FileUtils:
                 "original_path": original_path,
                 "temporary_path": temporary_path,
                 "final_path": final_path,
-                "current_path": current_path
+                "current_path": current_path,
+                "sha256": sha256_hash
             })
+
+        # Para los archivos que no se encontraron por ruta directa, intentar búsqueda por hash SHA-256
+        claimed_paths = {item["current_path"].resolve() for item in recovery_plan if item["current_path"] is not None}
+        missing_items = [item for item in recovery_plan if item["current_path"] is None]
+
+        if missing_items:
+            # Escanear archivos no reclamados de la carpeta
+            folder_files = [
+                f for f in folder_path.iterdir()
+                if f.is_file() and f.resolve() not in claimed_paths and not f.name.startswith(".__file_manager")
+            ]
+
+            # Mapear hashes de archivos existentes en carpeta
+            file_hashes = {}
+            for file_p in folder_files:
+                h = compute_file_hash(file_p)
+                if h:
+                    file_hashes.setdefault(h, []).append(file_p)
+
+            for item in missing_items:
+                target_hash = item.get("sha256")
+                if target_hash and target_hash in file_hashes and file_hashes[target_hash]:
+                    candidate = file_hashes[target_hash].pop(0)
+                    item["current_path"] = candidate
+                    claimed_paths.add(candidate.resolve())
 
         missing = [item for item in recovery_plan if item["current_path"] is None]
         if missing:
@@ -487,13 +593,16 @@ class FileUtils:
             temp_path = item["temp_path"]
             final_path = item["final_path"]
 
+            file_hash = compute_file_hash(file.path) if file.path.exists() else None
+
             backup["files"].append({
                 "original_name": file.original_name,
                 "original_path": str(file.original_path),
                 "temporary_name": temp_path.name,
                 "temporary_path": str(temp_path),
                 "final_name": final_path.name,
-                "final_path": str(final_path)
+                "final_path": str(final_path),
+                "sha256": file_hash
             })
 
         temp_backup = folder_path / (BACKUP_FILENAME + ".tmp")
