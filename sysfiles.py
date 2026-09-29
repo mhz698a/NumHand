@@ -36,7 +36,7 @@ class LoadFolderTask(QRunnable):
             self.signals.progress.emit(0, 0, "Leyendo archivos...")
             all_entries = list(self.folder_path.iterdir())
             total = len(all_entries)
-
+            
             files = []
             for idx, entry in enumerate(all_entries, start=1):
                 if entry.is_file() and not entry.name.startswith(".__file_manager__"):
@@ -311,22 +311,38 @@ class FileUtils:
         self.thread_pool.start(task)
 
     def rename_single_file(self, parent, model, row, new_base_name):
+        
         if row < 0 or row >= len(model.files):
             return False
 
         file_entry = model.files[row]
-        clean_stem = Path(file_entry.clean_name).stem
-        if not new_base_name or new_base_name == clean_stem:
+        if not new_base_name or new_base_name == file_entry.clean_name:
             return False
 
         old_path = file_entry.path
-        suffix = old_path.suffix
+        full_name = old_path.name
+        
+        ext_match = re.search(r"(\.[a-zA-Z0-9]{1,5})$", full_name)
+        if ext_match:
+            suffix = ext_match.group(1)
+            name_body = full_name[:-len(suffix)] 
+        else:
+            suffix = ""
+            name_body = full_name
+        
+        old_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", name_body)
+        old_prefix = old_prefix_match.group(1) if old_prefix_match else ""
+        
+        new_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", new_base_name)
+        
+        if new_prefix_match:
+            user_prefix = new_prefix_match.group(1)
+            clean_base = new_base_name[len(user_prefix):].strip()
+            new_filename = f"{user_prefix}{clean_base}{suffix}"
+            new_base_name = clean_base
+        else:
+            new_filename = f"{old_prefix}{new_base_name}{suffix}"
 
-        # Mantener el prefijo numérico si existe en el nombre actual del archivo en disco
-        prefix_match = re.match(r"^(\d+(?:_|\.\s*))", old_path.name)
-        prefix = prefix_match.group(1) if prefix_match else ""
-
-        new_filename = f"{prefix}{new_base_name}{suffix}"
         new_path = old_path.parent / new_filename
 
         if new_path.exists() and new_path != old_path:
@@ -342,9 +358,11 @@ class FileUtils:
             file_entry.path = new_path
             file_entry.original_path = new_path
             file_entry.original_name = new_filename
-            file_entry.clean_name = f"{new_base_name}{suffix}"
+            file_entry.clean_name = new_base_name
+            
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
             return True
+        
         except Exception as e:
             QMessageBox.critical(
                 parent,
