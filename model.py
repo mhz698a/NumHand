@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
 """
 
 class FileEntry:
-    def __init__(self, path):       
+    def __init__(self, path):
         self.path = Path(path)
         self.original_path = self.path
         self.original_name = (
@@ -26,17 +26,24 @@ class FileEntry:
             "",
             self.original_name
         )
-    
+
 class FileModel(QAbstractListModel):
 
     def __init__(self):
         super().__init__()
         self.files = []
 
-
     def rowCount(self, parent=QModelIndex()):
         return len(self.files)
 
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return (
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsEditable
+        )
 
     def data(self, index, role):
         if not index.isValid():
@@ -44,20 +51,17 @@ class FileModel(QAbstractListModel):
 
         file = self.files[index.row()]
 
-        if role == Qt.ItemDataRole.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             number = index.row() + 1
             return f"{number:03d}   {file.path.name}"
         return None
 
     def set_files(self, files):
-
         self.beginResetModel()
-
         self.files = [
             FileEntry(file)
             for file in files
         ]
-
         self.endResetModel()
 
     def move_file(self, source_row, target_row):

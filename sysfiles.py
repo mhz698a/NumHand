@@ -1,159 +1,425 @@
 import uuid
 import json
+import re
 from pathlib import Path
-from natsort import natsort_keygen, ns
-from pathlib import Path
-from PyQt6.QtWidgets import (QFileDialog)
+from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, Qt
 
 BACKUP_FILENAME = ".__file_manager_backup__.json"
 
+
+class WorkerSignals(QObject):
+    progress = pyqtSignal(int, int, str)  # current, total, message
+    finished = pyqtSignal(object)         # result payload
+    error = pyqtSignal(str)              # error message
+
+
+class LoadFolderTask(QRunnable):
+    def __init__(self, folder_path, file_utils):
+        super().__init__()
+        self.folder_path = Path(folder_path)
+        self.file_utils = file_utils
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            # Check backup if exists
+            backup_path = self.folder_path / BACKUP_FILENAME
+            if backup_path.exists():
+                self.signals.progress.emit(0, 0, "Recuperando respaldo pendiente...")
+                recovered = self.file_utils.recover_backup_sync(self.folder_path)
+                if not recovered:
+                    self.signals.error.emit("No se pudo completar la recuperación del respaldo pendiente.")
+                    return
+
+            self.signals.progress.emit(0, 0, "Leyendo archivos...")
+            all_entries = list(self.folder_path.iterdir())
+            total = len(all_entries)
+            
+            files = []
+            for idx, entry in enumerate(all_entries, start=1):
+                if entry.is_file() and not entry.name.startswith(".__file_manager__"):
+                    files.append(entry)
+                if total > 0 and (idx % 10 == 0 or idx == total):
+                    self.signals.progress.emit(idx, total, f"Leyendo archivo {idx} de {total}...")
+
+            self.signals.progress.emit(total, total, "Ordenando archivos...")
+            files.sort(key=lambda file: file.name.lower())
+
+            self.signals.finished.emit(files)
+        except Exception as e:
+            self.signals.error.emit(str(e))
+
+
+class ApplyOrderTask(QRunnable):
+    def __init__(self, folder_path, files, file_utils):
+        super().__init__()
+        self.folder_path = Path(folder_path)
+        self.files = files  # list of FileEntry
+        self.file_utils = file_utils
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            total_files = len(self.files)
+            if total_files == 0:
+                self.signals.finished.emit(True)
+                return
+
+            if total_files < 100:
+                number_format = "{:02d}. "
+            elif total_files < 1000:
+                number_format = "{:03d}. "
+            else:
+                number_format = "{:04d}. "
+
+            # FASE 1: Plan
+            temp_files = []
+            for index, file in enumerate(self.files, start=1):
+                temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
+                temp_path = self.folder_path / temp_name
+
+                # Asegurar que clean_name incluye la extensión
+                final_name = number_format.format(index) + file.clean_name
+                final_path = self.folder_path / final_name
+
+                temp_files.append({
+                    "file": file,
+                    "temp_path": temp_path,
+                    "final_path": final_path
+                })
+
+            # FASE 2: Backup
+            self.signals.progress.emit(0, total_files * 2, "Creando respaldo...")
+            self.file_utils.create_backup_sync(temp_files, self.folder_path)
+
+            # FASE 3: Originales -> Temporales
+            for idx, item in enumerate(temp_files, start=1):
+                item["file"].path.rename(item["temp_path"])
+                self.signals.progress.emit(idx, total_files * 2, f"Paso 1/2: renombrando {idx}/{total_files}")
+
+            # FASE 4: Temporales -> Definitivos
+            for idx, item in enumerate(temp_files, start=1):
+                temp_path = item["temp_path"]
+                final_path = item["final_path"]
+                temp_path.rename(final_path)
+                item["file"].path = final_path
+                item["file"].original_path = final_path
+                item["file"].original_name = final_path.name
+                # clean_name debe incluir la extensión, sin el prefijo numérico inicial
+                item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
+                self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando numeración {idx}/{total_files}")
+
+            # FASE 5: Eliminar backup
+            backup_path = self.folder_path / BACKUP_FILENAME
+            if backup_path.exists():
+                backup_path.unlink()
+
+            self.signals.finished.emit(True)
+        except Exception as error:
+            # Intentar recuperación
+            recovered = self.file_utils.recover_backup_sync(self.folder_path)
+            if recovered:
+                for file in self.files:
+                    file.path = file.original_path
+            self.signals.error.emit(f"Error durante el renombrado: {error}")
+
+
+class ResetNumerationTask(QRunnable):
+    def __init__(self, folder_path, file_utils):
+        super().__init__()
+        self.folder_path = Path(folder_path)
+        self.file_utils = file_utils
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            all_entries = [
+                f for f in self.folder_path.iterdir()
+                if f.is_file() and not f.name.startswith(".__file_manager__")
+            ]
+            total_files = len(all_entries)
+            if total_files == 0:
+                self.signals.finished.emit([])
+                return
+
+            # Renombrar removiendo el prefijo numérico
+            temp_plan = []
+            for file in all_entries:
+                original_name = file.name
+                clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", original_name)
+                if clean_name != original_name:
+                    temp_name = ".__file_manager__" + uuid.uuid4().hex + file.suffix
+                    temp_path = self.folder_path / temp_name
+                    final_path = self.folder_path / clean_name
+                    temp_plan.append({
+                        "original_path": file,
+                        "temp_path": temp_path,
+                        "final_path": final_path
+                    })
+
+            if temp_plan:
+                # Renombrar a temp primero para evitar colisiones
+                total_steps = len(temp_plan) * 2
+                for idx, item in enumerate(temp_plan, start=1):
+                    item["original_path"].rename(item["temp_path"])
+                    self.signals.progress.emit(idx, total_steps, f"Des-enumerando (fase 1) {idx}/{len(temp_plan)}")
+
+                for idx, item in enumerate(temp_plan, start=1):
+                    item["temp_path"].rename(item["final_path"])
+                    self.signals.progress.emit(len(temp_plan) + idx, total_steps, f"Des-enumerando (fase 2) {idx}/{len(temp_plan)}")
+
+            # Volver a leer la carpeta de archivos actualizada
+            updated_files = [
+                f for f in self.folder_path.iterdir()
+                if f.is_file() and not f.name.startswith(".__file_manager__")
+            ]
+            updated_files.sort(key=lambda file: file.name.lower())
+
+            self.signals.finished.emit(updated_files)
+        except Exception as error:
+            self.signals.error.emit(f"Error durante la des-enumeración: {error}")
+
+
 class FileUtils:
+
+    def __init__(self):
+        self.thread_pool = QThreadPool.globalInstance()
 
     def select_folder(self, parent, model):
         folder = QFileDialog.getExistingDirectory(
             parent, "Seleccionar carpeta"
         )
-
         if not folder:
             return
 
         parent.folder = Path(folder)
+        self.load_folder(parent, model)
 
-        # --------------------------------
-        # Comprobar backup pendiente
-        # --------------------------------
+    def load_folder(self, parent, model):
+        if not parent.folder or not parent.folder.exists():
+            return
 
-        backup_path = (
-            parent.folder
-            / BACKUP_FILENAME
+        progress_dialog = QProgressDialog("Cargando carpeta...", "Cancelar", 0, 0, parent)
+        progress_dialog.setWindowTitle("Cargando carpeta")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = LoadFolderTask(parent.folder, self)
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(files):
+            progress_dialog.close()
+            model.set_files(files)
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        progress_dialog.canceled.connect(lambda: None)
+        self.thread_pool.start(task)
+
+    def apply_order(self, parent, model):
+        if not parent.folder or not model.files:
+            return
+
+        progress_dialog = QProgressDialog("Aplicando numeración...", "Cancelar", 0, 0, parent)
+        progress_dialog.setWindowTitle("Aplicando numeración")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = ApplyOrderTask(parent.folder, model.files, self)
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(result):
+            progress_dialog.close()
+            model.layoutChanged.emit()
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+            model.layoutChanged.emit()
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
+
+    def reset_numeration_folder(self, parent, model):
+        if not parent.folder:
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
+            return
+
+        confirm = QMessageBox.question(
+            parent,
+            "Confirmar des-enumeración",
+            "¿Deseas eliminar los prefijos numéricos iniciales de todos los archivos en esta carpeta?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
         )
 
-        if backup_path.exists():
-            print("Se encontró un respaldo pendiente.")
-            recovered = self.recover_backup(parent)
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
 
-            if recovered:
-                print("Recuperación completada.")
-            else:
-                print(
-                    "No se pudo completar "
-                    "la recuperación."
-                )
+        progress_dialog = QProgressDialog("Des-enumerando carpeta...", "Cancelar", 0, 0, parent)
+        progress_dialog.setWindowTitle("Des-enumerando carpeta")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
 
-        # --------------------------------
-        # Cargar archivos
-        # --------------------------------
+        task = ResetNumerationTask(parent.folder, self)
 
-        files = [
-            file
-            for file in parent.folder.iterdir()
-            if (
-                file.is_file()
-                and not file.name.startswith(
-                    ".__file_manager__"
-                )
-            )
-        ]
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
 
-        files.sort(
-            key=lambda file: file.name.lower()
-        )
+        def on_finished(updated_files):
+            progress_dialog.close()
+            model.set_files(updated_files)
 
-        model.set_files(files)
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
+
+    def rename_single_file(self, parent, model, row, new_base_name):
+        """
+        Renombra un archivo individual sin perder su extensión.
         
+        Cuando el usuario renombra un archivo con double-click:
+        - Extrae la extensión real del archivo en disco
+        - Preserva el prefijo numérico si ya existe
+        - Actualiza clean_name para incluir la extensión (importante para apply_order)
+        """
+        
+        if row < 0 or row >= len(model.files):
+            return False
 
-    def recover_backup(self, parent):
+        file_entry = model.files[row]
+        if not new_base_name:
+            return False
 
-        backup_path = (
-            parent.folder
-            / BACKUP_FILENAME
-        )
+        old_path = file_entry.path
+        full_name = old_path.name
+        
+        # Extraer extensión usando regex más robusto
+        ext_match = re.search(r"(\.[a-zA-Z0-9]{1,5})$", full_name)
+        if ext_match:
+            suffix = ext_match.group(1)
+            name_body = full_name[:-len(suffix)]
+        else:
+            suffix = ""
+            name_body = full_name
+        
+        # Extraer prefijo numérico existente del nombre en disco
+        old_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", name_body)
+        old_prefix = old_prefix_match.group(1) if old_prefix_match else ""
+        
+        # Verificar si el usuario ingresó un prefijo numérico
+        new_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", new_base_name)
+        
+        if new_prefix_match:
+            # Usuario incluyó prefijo: usarlo tal cual
+            user_prefix = new_prefix_match.group(1)
+            clean_base = new_base_name[len(user_prefix):].strip()
+            new_filename = f"{user_prefix}{clean_base}{suffix}"
+            clean_base_for_model = clean_base
+        else:
+            # Usuario no incluyó prefijo: mantener el existente
+            new_filename = f"{old_prefix}{new_base_name}{suffix}"
+            clean_base_for_model = new_base_name
 
+        new_path = old_path.parent / new_filename
+
+        if new_path.exists() and new_path != old_path:
+            QMessageBox.warning(
+                parent,
+                "Error al renombrar",
+                f"Ya existe un archivo con el nombre '{new_filename}'."
+            )
+            return False
+
+        try:
+            old_path.rename(new_path)
+            file_entry.path = new_path
+            file_entry.original_path = new_path
+            file_entry.original_name = new_filename
+            # IMPORTANTE: clean_name debe incluir la extensión para que apply_order funcione correctamente
+            file_entry.clean_name = f"{clean_base_for_model}{suffix}"
+            
+            model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
+            return True
+        
+        except Exception as e:
+            QMessageBox.critical(
+                parent,
+                "Error al renombrar",
+                f"No se pudo renombrar el archivo: {e}"
+            )
+            return False
+
+    def recover_backup_sync(self, folder_path):
+        backup_path = folder_path / BACKUP_FILENAME
         if not backup_path.exists():
             return True
 
-        # --------------------------------
-        # Leer backup
-        # --------------------------------
-
         try:
-
-            with backup_path.open(
-                "r",
-                encoding="utf-8"
-            ) as backup_file:
-
-                backup = json.load(
-                    backup_file
-                )
-
+            with backup_path.open("r", encoding="utf-8") as backup_file:
+                backup = json.load(backup_file)
         except Exception as error:
-
-            print(
-                "No se pudo leer el respaldo:",
-                error
-            )
-
+            print("No se pudo leer el respaldo:", error)
             return False
-
-        # --------------------------------
-        # Validar backup
-        # --------------------------------
 
         if backup.get("version") != 1:
-
-            print(
-                "Versión de respaldo no compatible."
-            )
-
+            print("Versión de respaldo no compatible.")
             return False
 
-        files = backup.get(
-            "files",
-            []
-        )
-
+        files = backup.get("files", [])
         if not files:
-
-            print(
-                "El respaldo no contiene archivos."
-            )
-
+            print("El respaldo no contiene archivos.")
             return False
-
-        # --------------------------------
-        # FASE 1
-        # Determinar dónde está actualmente
-        # cada archivo
-        # --------------------------------
 
         recovery_plan = []
-
         for item in files:
-
-            original_path = Path(
-                item["original_path"]
-            )
-
-            temporary_path = Path(
-                item["temporary_path"]
-            )
-
-            final_path = Path(
-                item["final_path"]
-            )
+            original_path = Path(item["original_path"])
+            temporary_path = Path(item["temporary_path"])
+            final_path = Path(item["final_path"])
 
             current_path = None
-
-            # 1. Todavía está como temporal
             if temporary_path.exists():
                 current_path = temporary_path
-
-            # 2. Ya fue renombrado al nombre final
             elif final_path.exists():
                 current_path = final_path
-
-            # 3. Ya está en el nombre original
             elif original_path.exists():
                 current_path = original_path
 
@@ -164,57 +430,17 @@ class FileUtils:
                 "current_path": current_path
             })
 
-        # --------------------------------
-        # Verificar que encontramos
-        # todos los archivos
-        # --------------------------------
-
-        missing = [
-            item
-            for item in recovery_plan
-            if item["current_path"] is None
-        ]
-
+        missing = [item for item in recovery_plan if item["current_path"] is None]
         if missing:
-
-            print(
-                "No se pudieron localizar "
-                "todos los archivos del respaldo."
-            )
-
-            for item in missing:
-
-                print(
-                    "No encontrado:",
-                    item["original_path"]
-                )
-
+            print("No se pudieron localizar todos los archivos del respaldo.")
             return False
 
-        # --------------------------------
-        # FASE 2
-        # Llevar todos los archivos a
-        # nombres temporales de recuperación
-        #
-        # Esto evita colisiones entre
-        # nombres originales.
-        # --------------------------------
-
         recovery_temp_files = []
-
         try:
-
             for item in recovery_plan:
+                current_path = item["current_path"]
+                original_path = item["original_path"]
 
-                current_path = (
-                    item["current_path"]
-                )
-
-                original_path = (
-                    item["original_path"]
-                )
-
-                # Ya está correctamente recuperado.
                 if current_path == original_path:
                     continue
 
@@ -223,223 +449,36 @@ class FileUtils:
                     + uuid.uuid4().hex
                     + current_path.suffix
                 )
-
-                recovery_path = (
-                    parent.folder
-                    / recovery_name
-                )
-
-                current_path.rename(
-                    recovery_path
-                )
+                recovery_path = folder_path / recovery_name
+                current_path.rename(recovery_path)
 
                 recovery_temp_files.append({
                     "recovery_path": recovery_path,
                     "original_path": original_path
                 })
 
-            # --------------------------------
-            # FASE 3
-            # Temporales de recuperación
-            # → nombres originales
-            # --------------------------------
-
             for item in recovery_temp_files:
-                recovery_path = (item["recovery_path"])
-                original_path = (item["original_path"])
-                recovery_path.rename(original_path)
-
-            # --------------------------------
-            # FASE 4
-            # Verificar recuperación
-            # --------------------------------
+                item["recovery_path"].rename(item["original_path"])
 
             for item in recovery_plan:
-                original_path = (item["original_path"])
-
-                if not original_path.exists():
-                    raise RuntimeError(
-                        "No se pudo verificar "
-                        f"{original_path.name}"
-                    )
-
-            # --------------------------------
-            # FASE 5
-            # Eliminar backup
-            # --------------------------------
+                if not item["original_path"].exists():
+                    raise RuntimeError(f"No se pudo verificar {item['original_path'].name}")
 
             backup_path.unlink()
-
             print("Recuperación completada correctamente.")
             return True
 
         except Exception as error:
             print("Error durante la recuperación:", error)
             return False
-    
-    
-    def apply_order(self, parent, model):
-        if not model.files:
-            return
 
-        # --------------------------------
-        # Configuración del formato
-        # --------------------------------
-
-        total_files = len(model.files)
-
-        if total_files < 100:
-            number_format = "{:02d}. "
-        elif total_files < 1000:
-            number_format = "{:03d}. "
-        else:
-            number_format = "{:04d}. "
-
-        # --------------------------------
-        # FASE 1
-        # Crear el plan completo
-        # --------------------------------
-
-        temp_files = []
-
-        for index, file in enumerate(
-            model.files,
-            start=1
-        ):
-
-            # Nombre temporal único
-            temp_name = (
-                ".__file_manager__"
-                + uuid.uuid4().hex
-                + file.path.suffix
-            )
-
-            temp_path = (
-                parent.folder
-                / temp_name
-            )
-
-            # Nombre definitivo
-            final_name = (
-                number_format.format(index)
-                + file.clean_name
-            )
-
-            final_path = (
-                parent.folder
-                / final_name
-            )
-
-            temp_files.append({
-                "file": file,
-                "temp_path": temp_path,
-                "final_path": final_path
-            })
-
-        # --------------------------------
-        # FASE 2
-        # Crear backup
-        #
-        # TODAVÍA NO SE HA MODIFICADO
-        # NINGÚN ARCHIVO.
-        # --------------------------------
-
-        self.create_backup(
-            temp_files, parent
-        )
-
-        try:
-
-            # --------------------------------
-            # FASE 3
-            # Originales → temporales
-            # --------------------------------
-
-            for item in temp_files:
-
-                file = item["file"]
-                temp_path = item["temp_path"]
-
-                file.path.rename(
-                    temp_path
-                )
-
-            # --------------------------------
-            # FASE 4
-            # Temporales → definitivos
-            # --------------------------------
-
-            for item in temp_files:
-
-                file = item["file"]
-                temp_path = item["temp_path"]
-                final_path = item["final_path"]
-
-                temp_path.rename(
-                    final_path
-                )
-
-                file.path = final_path
-
-            # --------------------------------
-            # FASE 5
-            # Todo terminó correctamente
-            # --------------------------------
-
-            backup_path = (
-                parent.folder
-                / BACKUP_FILENAME
-            )
-
-            if backup_path.exists():
-                backup_path.unlink()
-
-            model.layoutChanged.emit()
-
-            print(
-                "Renombrado completado correctamente."
-            )
-
-        except Exception as error:
-
-            print(
-                "Error durante el renombrado:",
-                error
-            )
-
-            # --------------------------------
-            # RECUPERACIÓN
-            # --------------------------------
-
-            recovered = (
-                self.recover_backup()
-            )
-
-            if recovered:
-                print("Archivos recuperados correctamente.")
-                for file in model.files:
-                    file.path = (
-                        file.original_path
-                    )
-
-            else:
-
-                print(
-                    "La recuperación "
-                    "no pudo completarse."
-                )
-
-            model.layoutChanged.emit()
-            raise
-    
-    
-    def create_backup(self, temp_files, parent):
-        backup_path = (parent.folder / BACKUP_FILENAME)
+    def create_backup_sync(self, temp_files, folder_path):
+        backup_path = folder_path / BACKUP_FILENAME
 
         backup = {
             "version": 1,
             "status": "renaming",
-            "folder": str(parent.folder),
+            "folder": str(folder_path),
             "files": []
         }
 
@@ -450,28 +489,17 @@ class FileUtils:
 
             backup["files"].append({
                 "original_name": file.original_name,
-                "original_path": str(
-                    file.original_path
-                ),
+                "original_path": str(file.original_path),
                 "temporary_name": temp_path.name,
                 "temporary_path": str(temp_path),
                 "final_name": final_path.name,
                 "final_path": str(final_path)
             })
 
-        temp_backup = (parent.folder / (BACKUP_FILENAME + ".tmp"))
-
+        temp_backup = folder_path / (BACKUP_FILENAME + ".tmp")
         with temp_backup.open("w", encoding="utf-8") as backup_file:
-
-            json.dump(
-                backup,
-                backup_file,
-                indent=4,
-                ensure_ascii=False
-            )
-
+            json.dump(backup, backup_file, indent=4, ensure_ascii=False)
             backup_file.flush()
 
         temp_backup.replace(backup_path)
-
         return backup_path
