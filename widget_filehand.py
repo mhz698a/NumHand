@@ -1,5 +1,7 @@
-from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QLineEdit, QAbstractItemView
-from PyQt6.QtCore import (Qt)
+from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QLineEdit  # type: ignore
+from PyQt6.QtCore import (  # type: ignore
+    Qt
+)
 from pathlib import Path
 
 
@@ -14,7 +16,10 @@ class FileDelegate(QStyledItemDelegate):
         rect = option.rect
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(rect, option.palette.highlight())
+            painter.fillRect(
+                rect,
+                option.palette.highlight()
+            )
 
         # Dibujar icono de arrastre
         painter.drawText(
@@ -26,13 +31,11 @@ class FileDelegate(QStyledItemDelegate):
             "☷"
         )
 
-        view = option.widget
-        is_editing = False
-        if isinstance(view, QAbstractItemView):
-            is_editing = view.indexWidget(index) is not None or view.state() == QAbstractItemView.State.EditingState
+        is_editing = bool(option.state & QStyle.StateFlag.State_Editing)
 
         if is_editing:
-            # Si se está editando, mostrar únicamente el número de índice
+            # Si se está editando, mostrar únicamente el número de índice para evitar que
+            # el texto completo del archivo se sobreponga detrás del cuadro de edición.
             number_str = f"{index.row() + 1:03d}   "
             painter.drawText(
                 rect.x() + 45,
@@ -62,24 +65,14 @@ class FileDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         editor = QLineEdit(parent)
-        # SOLUCIÓN AL DESAJUSTE: Forzar un fondo sólido y remover paddings nativos del OS
-        editor.setStyleSheet("""
-            QLineEdit {
-                background-color: #1e1e1e; /* Ajusta este color al fondo de tu app */
-                color: white;
-                border: 1px solid #3a3a3a;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
+        editor.setContentsMargins(0, 0, 0, 0)
         return editor
 
     def updateEditorGeometry(self, editor, option, index):
         rect = option.rect
-        # Posicionar el editor después del icono y el número de índice
-        # Se redujo levemente el offset en X (de 90 a 85) para coincidir con tu margen de dibujo.
+        # Posicionar el editor después del icono (x + 8..38) y el número de índice (x + 45..85)
         editor.setGeometry(
-            rect.x() + 85,
+            rect.x() + 90,
             rect.y() + 4,
             rect.width() - 95,
             rect.height() - 8
