@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QLineEdit  # type: ignore
 from PyQt6.QtCore import (  # type: ignore
-    Qt, QEvent
+    Qt
 )
 from pathlib import Path
 
@@ -21,6 +21,7 @@ class FileDelegate(QStyledItemDelegate):
                 option.palette.highlight()
             )
 
+        # Dibujar icono de arrastre
         painter.drawText(
             rect.x() + 8,
             rect.y(),
@@ -30,14 +31,30 @@ class FileDelegate(QStyledItemDelegate):
             "☷"
         )
 
-        painter.drawText(
-            rect.x() + 45,
-            rect.y(),
-            rect.width() - 45,
-            rect.height(),
-            Qt.AlignmentFlag.AlignVCenter,
-            index.data()
-        )
+        is_editing = bool(option.state & QStyle.StateFlag.State_Editing)
+
+        if is_editing:
+            # Si se está editando, mostrar únicamente el número de índice para evitar que
+            # el texto completo del archivo se sobreponga detrás del cuadro de edición.
+            number_str = f"{index.row() + 1:03d}   "
+            painter.drawText(
+                rect.x() + 45,
+                rect.y(),
+                rect.width() - 45,
+                rect.height(),
+                Qt.AlignmentFlag.AlignVCenter,
+                number_str
+            )
+        else:
+            # En estado normal, dibujar el texto completo (número + nombre de archivo)
+            painter.drawText(
+                rect.x() + 45,
+                rect.y(),
+                rect.width() - 45,
+                rect.height(),
+                Qt.AlignmentFlag.AlignVCenter,
+                index.data()
+            )
 
         painter.restore()
 
@@ -53,11 +70,11 @@ class FileDelegate(QStyledItemDelegate):
 
     def updateEditorGeometry(self, editor, option, index):
         rect = option.rect
-        # Posicionar el editor justo sobre el texto del nombre
+        # Posicionar el editor después del icono (x + 8..38) y el número de índice (x + 45..85)
         editor.setGeometry(
-            rect.x() + 45,
+            rect.x() + 90,
             rect.y() + 4,
-            rect.width() - 50,
+            rect.width() - 95,
             rect.height() - 8
         )
 
@@ -66,11 +83,7 @@ class FileDelegate(QStyledItemDelegate):
             return
 
         file_entry = self.main_window.model.files[index.row()]
-        path = file_entry.path
-        # Nombre base sin extensión
-        base_name_without_ext = path.stem
-
-        # Si tiene prefijo de numeración (p. ej. "001. " o "01_"), obtener solo el nombre limpio sin extensión
+        # Nombre sin prefijo numérico inicial y sin extensión para el renombrado rápido
         clean_base_name = Path(file_entry.clean_name).stem
         editor.setText(clean_base_name)
         editor.selectAll()

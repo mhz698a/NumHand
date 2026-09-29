@@ -315,14 +315,14 @@ class FileUtils:
             return False
 
         file_entry = model.files[row]
-        if not new_base_name or new_base_name == file_entry.clean_name:
+        clean_stem = Path(file_entry.clean_name).stem
+        if not new_base_name or new_base_name == clean_stem:
             return False
 
         old_path = file_entry.path
         suffix = old_path.suffix
 
         # Mantener el prefijo numérico si existe en el nombre actual del archivo en disco
-        # O construir el nuevo nombre preservando la estructura actual
         prefix_match = re.match(r"^(\d+(?:_|\.\s*))", old_path.name)
         prefix = prefix_match.group(1) if prefix_match else ""
 
@@ -342,7 +342,7 @@ class FileUtils:
             file_entry.path = new_path
             file_entry.original_path = new_path
             file_entry.original_name = new_filename
-            file_entry.clean_name = new_base_name
+            file_entry.clean_name = f"{new_base_name}{suffix}"
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
             return True
         except Exception as e:
