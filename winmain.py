@@ -101,6 +101,13 @@ class WMain(QMainWindow):
         )
         menu_utilidades.addAction(ac_desnum_folder)
 
+        ac_recover_failed = QAction("Recuperar nombres fallidos", self)
+        ac_recover_failed.setShortcut("Ctrl+Shift+R")
+        ac_recover_failed.triggered.connect(
+            lambda: self.file_utils.recover_failed_names(self, self.model)
+        )
+        menu_utilidades.addAction(ac_recover_failed)
+
 
     def openFolderExplorer(self):
         if self.folder and self.folder.exists():
