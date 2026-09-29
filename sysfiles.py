@@ -1,6 +1,7 @@
 import uuid
 import json
 import re
+import time
 import hashlib
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
@@ -9,6 +10,18 @@ from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, 
 import syswall
 
 BACKUP_FILENAME = ".__file_manager_backup__.json"
+
+
+def rename_with_retry(src_path, dst_path, max_attempts=10, delay=2.0):
+    """Reintenta renombrar un archivo hasta max_attempts veces con una pausa de delay segundos."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            src_path.rename(dst_path)
+            return
+        except Exception as e:
+            if attempt == max_attempts:
+                raise e
+            time.sleep(delay)
 
 
 def compute_file_hash(file_path, chunk_size=65536):
@@ -119,7 +132,7 @@ class ApplyOrderTask(QRunnable):
             for idx, item in enumerate(temp_files, start=1):
                 temp_path = item["temp_path"]
                 final_path = item["final_path"]
-                temp_path.rename(final_path)
+                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
                 item["file"].path = final_path
                 item["file"].original_path = final_path
                 item["file"].original_name = final_path.name
