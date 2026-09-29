@@ -25,6 +25,9 @@ class WMain(QMainWindow):
         self.folder = Path(folder) if folder else None
         self.model = FileModel()
         self.file_utils = FileUtils()
+        
+        if self.folder:
+            self.file_utils.load_folder(self, self.model)
 
         self.setWindowTitle("Numeric Handler Files")
         self.resize(500, 700)
