@@ -81,12 +81,7 @@ class ApplyOrderTask(QRunnable):
                 temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
                 temp_path = self.folder_path / temp_name
 
-                # Asegurar que file.clean_name contenga la extensión
-                clean_name = file.clean_name
-                if not Path(clean_name).suffix and file.path.suffix:
-                    clean_name = f"{clean_name}{file.path.suffix}"
-
-                final_name = number_format.format(index) + clean_name
+                final_name = number_format.format(index) + file.clean_name
                 final_path = self.folder_path / final_name
 
                 temp_files.append({
@@ -320,55 +315,42 @@ class FileUtils:
             return False
 
         file_entry = model.files[row]
-
-        # Limpiar cualquier numeración inicial o extensión duplicada si el usuario la escribió
-        clean_input = re.sub(r"^\d+(?:_|\.\s*)", "", new_base_name).strip()
+        clean_stem = Path(file_entry.clean_name).stem
+        if not new_base_name or new_base_name == clean_stem:
+            return False
 
         old_path = file_entry.path
         suffix = old_path.suffix
-
-        # Si el usuario incluyó la extensión en el cuadro de texto, quitársela para no duplicarla
-        if clean_input.endswith(suffix) and len(clean_input) > len(suffix):
-            clean_stem = clean_input[:-len(suffix)]
-        else:
-            clean_stem = Path(clean_input).stem or clean_input
-
-        current_clean_stem = Path(file_entry.clean_name).stem
-        if not clean_stem:
-            return False
 
         # Mantener el prefijo numérico si existe en el nombre actual del archivo en disco
         prefix_match = re.match(r"^(\d+(?:_|\.\s*))", old_path.name)
         prefix = prefix_match.group(1) if prefix_match else ""
 
-        new_filename = f"{prefix}{clean_stem}{suffix}"
+        new_filename = f"{prefix}{new_base_name}{suffix}"
         new_path = old_path.parent / new_filename
 
-        if new_path != old_path and new_path.exists():
-            if parent:
-                QMessageBox.warning(
-                    parent,
-                    "Error al renombrar",
-                    f"Ya existe un archivo con el nombre '{new_filename}'."
-                )
+        if new_path.exists() and new_path != old_path:
+            QMessageBox.warning(
+                parent,
+                "Error al renombrar",
+                f"Ya existe un archivo con el nombre '{new_filename}'."
+            )
             return False
 
         try:
-            if old_path != new_path:
-                old_path.rename(new_path)
+            old_path.rename(new_path)
             file_entry.path = new_path
             file_entry.original_path = new_path
             file_entry.original_name = new_filename
-            file_entry.clean_name = f"{clean_stem}{suffix}"
+            file_entry.clean_name = f"{new_base_name}{suffix}"
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
             return True
         except Exception as e:
-            if parent:
-                QMessageBox.critical(
-                    parent,
-                    "Error al renombrar",
-                    f"No se pudo renombrar el archivo: {e}"
-                )
+            QMessageBox.critical(
+                parent,
+                "Error al renombrar",
+                f"No se pudo renombrar el archivo: {e}"
+            )
             return False
 
     def recover_backup_sync(self, folder_path):
