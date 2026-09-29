@@ -81,6 +81,7 @@ class ApplyOrderTask(QRunnable):
                 temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
                 temp_path = self.folder_path / temp_name
 
+                # Asegurar que clean_name incluye la extensión
                 final_name = number_format.format(index) + file.clean_name
                 final_path = self.folder_path / final_name
 
@@ -107,6 +108,7 @@ class ApplyOrderTask(QRunnable):
                 item["file"].path = final_path
                 item["file"].original_path = final_path
                 item["file"].original_name = final_path.name
+                # clean_name debe incluir la extensión, sin el prefijo numérico inicial
                 item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
                 self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando numeración {idx}/{total_files}")
 
@@ -311,37 +313,51 @@ class FileUtils:
         self.thread_pool.start(task)
 
     def rename_single_file(self, parent, model, row, new_base_name):
+        """
+        Renombra un archivo individual sin perder su extensión.
+        
+        Cuando el usuario renombra un archivo con double-click:
+        - Extrae la extensión real del archivo en disco
+        - Preserva el prefijo numérico si ya existe
+        - Actualiza clean_name para incluir la extensión (importante para apply_order)
+        """
         
         if row < 0 or row >= len(model.files):
             return False
 
         file_entry = model.files[row]
-        if not new_base_name or new_base_name == file_entry.clean_name:
+        if not new_base_name:
             return False
 
         old_path = file_entry.path
         full_name = old_path.name
         
+        # Extraer extensión usando regex más robusto
         ext_match = re.search(r"(\.[a-zA-Z0-9]{1,5})$", full_name)
         if ext_match:
             suffix = ext_match.group(1)
-            name_body = full_name[:-len(suffix)] 
+            name_body = full_name[:-len(suffix)]
         else:
             suffix = ""
             name_body = full_name
         
+        # Extraer prefijo numérico existente del nombre en disco
         old_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", name_body)
         old_prefix = old_prefix_match.group(1) if old_prefix_match else ""
         
+        # Verificar si el usuario ingresó un prefijo numérico
         new_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", new_base_name)
         
         if new_prefix_match:
+            # Usuario incluyó prefijo: usarlo tal cual
             user_prefix = new_prefix_match.group(1)
             clean_base = new_base_name[len(user_prefix):].strip()
             new_filename = f"{user_prefix}{clean_base}{suffix}"
-            new_base_name = clean_base
+            clean_base_for_model = clean_base
         else:
+            # Usuario no incluyó prefijo: mantener el existente
             new_filename = f"{old_prefix}{new_base_name}{suffix}"
+            clean_base_for_model = new_base_name
 
         new_path = old_path.parent / new_filename
 
@@ -358,7 +374,8 @@ class FileUtils:
             file_entry.path = new_path
             file_entry.original_path = new_path
             file_entry.original_name = new_filename
-            file_entry.clean_name = new_base_name
+            # IMPORTANTE: clean_name debe incluir la extensión para que apply_order funcione correctamente
+            file_entry.clean_name = f"{clean_base_for_model}{suffix}"
             
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
             return True
