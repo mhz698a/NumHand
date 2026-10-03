@@ -1,215 +1,16 @@
 import uuid
 import json
 import re
-import time
-import hashlib
+
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, Qt
+from PyQt6.QtCore import QThreadPool, Qt
 
 import syswall
 
-BACKUP_FILENAME = ".__file_manager_backup__.json"
-
-
-def rename_with_retry(src_path, dst_path, max_attempts=10, delay=2.0):
-    """Reintenta renombrar un archivo hasta max_attempts veces con una pausa de delay segundos."""
-    for attempt in range(1, max_attempts + 1):
-        try:
-            src_path.rename(dst_path)
-            return
-        except Exception as e:
-            if attempt == max_attempts:
-                raise e
-            time.sleep(delay)
-
-
-def compute_file_hash(file_path, chunk_size=65536):
-    """Calcula el hash SHA-256 de un archivo."""
-    try:
-        hasher = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            while chunk := f.read(chunk_size):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-    except Exception:
-        return None
-
-
-class WorkerSignals(QObject):
-    progress = pyqtSignal(int, int, str)  # current, total, message
-    finished = pyqtSignal(object)         # result payload
-    error = pyqtSignal(str)              # error message
-
-
-class LoadFolderTask(QRunnable):
-    def __init__(self, folder_path, file_utils):
-        super().__init__()
-        self.folder_path = Path(folder_path)
-        self.file_utils = file_utils
-        self.signals = WorkerSignals()
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            # Check backup if exists
-            backup_path = self.folder_path / BACKUP_FILENAME
-            if backup_path.exists():
-                self.signals.progress.emit(0, 0, "Recuperando respaldo pendiente...")
-                recovered = self.file_utils.recover_backup_sync(self.folder_path)
-                if not recovered:
-                    self.signals.error.emit("No se pudo completar la recuperación del respaldo pendiente.")
-                    return
-
-            self.signals.progress.emit(0, 0, "Leyendo archivos...")
-            all_entries = list(self.folder_path.iterdir())
-            total = len(all_entries)
-            
-            files = []
-            for idx, entry in enumerate(all_entries, start=1):
-                if entry.is_file() and not entry.name.startswith(".__file_manager__"):
-                    files.append(entry)
-                if total > 0 and (idx % 10 == 0 or idx == total):
-                    self.signals.progress.emit(idx, total, f"Leyendo archivo {idx} de {total}...")
-
-            self.signals.progress.emit(total, total, "Ordenando archivos...")
-            files.sort(key=lambda file: file.name.lower())
-
-            self.signals.finished.emit(files)
-        except Exception as e:
-            self.signals.error.emit(str(e))
-
-
-class ApplyOrderTask(QRunnable):
-    def __init__(self, folder_path, files, file_utils):
-        super().__init__()
-        self.folder_path = Path(folder_path)
-        self.files = files  # list of FileEntry
-        self.file_utils = file_utils
-        self.signals = WorkerSignals()
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            total_files = len(self.files)
-            if total_files == 0:
-                self.signals.finished.emit(True)
-                return
-
-            if total_files < 100:
-                number_format = "{:02d}. "
-            elif total_files < 1000:
-                number_format = "{:03d}. "
-            else:
-                number_format = "{:04d}. "
-
-            # FASE 1: Plan
-            temp_files = []
-            for index, file in enumerate(self.files, start=1):
-                temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
-                temp_path = self.folder_path / temp_name
-
-                # Asegurar que clean_name incluye la extensión
-                final_name = number_format.format(index) + file.clean_name
-                final_path = self.folder_path / final_name
-
-                temp_files.append({
-                    "file": file,
-                    "temp_path": temp_path,
-                    "final_path": final_path
-                })
-
-            # FASE 2: Backup
-            self.signals.progress.emit(0, total_files * 2, "Creando respaldo...")
-            self.file_utils.create_backup_sync(temp_files, self.folder_path)
-
-            # FASE 3: Originales -> Temporales
-            for idx, item in enumerate(temp_files, start=1):
-                item["file"].path.rename(item["temp_path"])
-                self.signals.progress.emit(idx, total_files * 2, f"Paso 1/2: renombrando {idx}/{total_files}")
-
-            # FASE 4: Temporales -> Definitivos
-            for idx, item in enumerate(temp_files, start=1):
-                temp_path = item["temp_path"]
-                final_path = item["final_path"]
-                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
-                item["file"].path = final_path
-                item["file"].original_path = final_path
-                item["file"].original_name = final_path.name
-                # clean_name debe incluir la extensión, sin el prefijo numérico inicial
-                item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
-                self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando numeración {idx}/{total_files}")
-
-            # FASE 5: Eliminar backup
-            backup_path = self.folder_path / BACKUP_FILENAME
-            if backup_path.exists():
-                backup_path.unlink()
-
-            self.signals.finished.emit(True)
-        except Exception as error:
-            # Intentar recuperación
-            recovered = self.file_utils.recover_backup_sync(self.folder_path)
-            if recovered:
-                for file in self.files:
-                    file.path = file.original_path
-            self.signals.error.emit(f"Error durante el renombrado: {error}")
-
-
-class ResetNumerationTask(QRunnable):
-    def __init__(self, folder_path, file_utils):
-        super().__init__()
-        self.folder_path = Path(folder_path)
-        self.file_utils = file_utils
-        self.signals = WorkerSignals()
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            all_entries = [
-                f for f in self.folder_path.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
-            ]
-            total_files = len(all_entries)
-            if total_files == 0:
-                self.signals.finished.emit([])
-                return
-
-            # Renombrar removiendo el prefijo numérico
-            temp_plan = []
-            for file in all_entries:
-                original_name = file.name
-                clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", original_name)
-                if clean_name != original_name:
-                    temp_name = ".__file_manager__" + uuid.uuid4().hex + file.suffix
-                    temp_path = self.folder_path / temp_name
-                    final_path = self.folder_path / clean_name
-                    temp_plan.append({
-                        "original_path": file,
-                        "temp_path": temp_path,
-                        "final_path": final_path
-                    })
-
-            if temp_plan:
-                # Renombrar a temp primero para evitar colisiones
-                total_steps = len(temp_plan) * 2
-                for idx, item in enumerate(temp_plan, start=1):
-                    item["original_path"].rename(item["temp_path"])
-                    self.signals.progress.emit(idx, total_steps, f"Des-enumerando (fase 1) {idx}/{len(temp_plan)}")
-
-                for idx, item in enumerate(temp_plan, start=1):
-                    item["temp_path"].rename(item["final_path"])
-                    self.signals.progress.emit(len(temp_plan) + idx, total_steps, f"Des-enumerando (fase 2) {idx}/{len(temp_plan)}")
-
-            # Volver a leer la carpeta de archivos actualizada
-            updated_files = [
-                f for f in self.folder_path.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
-            ]
-            updated_files.sort(key=lambda file: file.name.lower())
-
-            self.signals.finished.emit(updated_files)
-        except Exception as error:
-            self.signals.error.emit(f"Error durante la des-enumeración: {error}")
+from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files
+from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
+from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 
 class FileUtils:
@@ -349,6 +150,161 @@ class FileUtils:
                     "No se pudo completar la recuperación del respaldo."
                 )
 
+    def integrate_files(self, parent, model):
+        if not parent.folder or not parent.folder.exists():
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
+            return
+
+        folder_is_numbered = is_folder_cleanly_numbered(model.files)
+
+        if not folder_is_numbered:
+            QMessageBox.warning(
+                parent,
+                "Carpeta no numerada",
+                "Esta carpeta no esta numerada, los archivos que se muevas aqui estarán en orden alfabético"
+            )
+
+        # Diálogo para seleccionar archivos a integrar
+        selected_files, _ = QFileDialog.getOpenFileNames(
+            parent,
+            "Seleccionar archivos a integrar"
+        )
+
+        if not selected_files:
+            return
+
+        selected_paths = [Path(p) for p in selected_files]
+
+        # Comprobar bloqueos de archivos en seleccionados y en carpeta destino
+        existing_entries = [
+            f for f in parent.folder.iterdir()
+            if f.is_file() and not f.name.startswith(TEMP_PREFIX)
+        ]
+        if self.check_files_locked(parent, selected_paths + existing_entries):
+            return
+
+        selected_case = classify_selected_files(selected_paths)
+
+        if folder_is_numbered and selected_case == "CASE_3_STRANGE_OR_GAPS":
+            confirm = QMessageBox.question(
+                parent,
+                "Formato no estándar o numeración incompleta",
+                "Los archivos seleccionados tienen formatos extraños de numeración o saltos en la secuencia.\n\n"
+                "Se limpiará su formato de inicio, se ordenarán alfabéticamente y se les añadirá numeración "
+                "continua al final de la carpeta destino.\n\n¿Deseas continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+        progress_dialog = QProgressDialog("Integrando archivos...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
+        progress_dialog.setWindowTitle("Integrar Archivos")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = IntegrateFilesTask(
+            parent.folder,
+            selected_paths,
+            folder_is_numbered,
+            selected_case,
+            self
+        )
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(updated_files):
+            progress_dialog.close()
+            model.set_files(updated_files)
+            QMessageBox.information(parent, "Éxito", "Archivos integrados correctamente.")
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+            self.load_folder(parent, model)
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
+
+    def format_hundreds(self, parent, model):
+        if not parent.folder or not model.files:
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada o la carpeta está vacía.")
+            return
+
+        # Comprobar si los archivos ya están con formato de 3 o más dígitos (000. )
+        has_2digit_or_1digit = False
+        for file in model.files:
+            match = re.match(r"^(\d+)(?:_|\.\s*)", file.path.name)
+            if match:
+                digits_len = len(match.group(1))
+                if digits_len < 3:
+                    has_2digit_or_1digit = True
+                    break
+
+        if not has_2digit_or_1digit:
+            QMessageBox.information(
+                parent,
+                "Información",
+                "La carpeta ya se encuentra con el formato de centenas ('000. ')."
+            )
+            return
+
+        file_paths = [f.path for f in model.files]
+        if self.check_files_locked(parent, file_paths):
+            return
+
+        confirm = QMessageBox.question(
+            parent,
+            "Pasar a formato de centenas",
+            "¿Deseas cambiar la numeración de los archivos en esta carpeta al formato de centenas ('001. ')?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
+        progress_dialog.setWindowTitle("Formato de centenas")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = FormatHundredsTask(parent.folder, model.files, self)
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(result):
+            progress_dialog.close()
+            model.layoutChanged.emit()
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+            model.layoutChanged.emit()
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
+
     def reset_numeration_folder(self, parent, model):
         if not parent.folder:
             QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
@@ -372,7 +328,8 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Des-enumerando carpeta...", "Cancelar", 0, 0, parent)
+        progress_dialog = QProgressDialog("Des-enumerando carpeta...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
         progress_dialog.setWindowTitle("Des-enumerando carpeta")
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setMinimumDuration(0)
