@@ -29,7 +29,7 @@ class FileDelegate(QStyledItemDelegate):
         view = option.widget
         is_editing = False
         if isinstance(view, QAbstractItemView):
-            is_editing = view.indexWidget(index) is not None or view.state() == QAbstractItemView.State.EditingState
+            is_editing = view.indexWidget(index) is not None
 
         if is_editing:
             # Si se está editando, mostrar únicamente el número de índice
