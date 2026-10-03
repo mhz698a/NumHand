@@ -3,6 +3,7 @@ import json
 import re
 import time
 import hashlib
+import shutil
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, Qt
@@ -10,6 +11,7 @@ from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, 
 import syswall
 
 BACKUP_FILENAME = ".__file_manager_backup__.json"
+TEMP_PREFIX = ".__file_manager_"
 
 
 def rename_with_retry(src_path, dst_path, max_attempts=10, delay=2.0):
@@ -67,7 +69,7 @@ class LoadFolderTask(QRunnable):
             
             files = []
             for idx, entry in enumerate(all_entries, start=1):
-                if entry.is_file() and not entry.name.startswith(".__file_manager__"):
+                if entry.is_file() and not entry.name.startswith(TEMP_PREFIX):
                     files.append(entry)
                 if total > 0 and (idx % 10 == 0 or idx == total):
                     self.signals.progress.emit(idx, total, f"Leyendo archivo {idx} de {total}...")
@@ -106,7 +108,7 @@ class ApplyOrderTask(QRunnable):
             # FASE 1: Plan
             temp_files = []
             for index, file in enumerate(self.files, start=1):
-                temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
+                temp_name = TEMP_PREFIX + uuid.uuid4().hex + file.path.suffix
                 temp_path = self.folder_path / temp_name
 
                 # Asegurar que clean_name incluye la extensión
@@ -288,7 +290,7 @@ class IntegrateFilesTask(QRunnable):
 
             existing_files = [
                 f for f in self.target_folder.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
+                if f.is_file() and not f.name.startswith(TEMP_PREFIX)
             ]
 
             if not self.folder_is_numbered:
@@ -306,8 +308,8 @@ class IntegrateFilesTask(QRunnable):
                 for sf in self.selected_file_paths:
                     cname = clean_prefix(sf.name)
                     # Mover el archivo a la carpeta destino con un nombre temporal
-                    temp_dest = self.target_folder / (f".__file_manager_import__{uuid.uuid4().hex}{sf.suffix}")
-                    sf.rename(temp_dest)
+                    temp_dest = self.target_folder / (f"{TEMP_PREFIX}import_{uuid.uuid4().hex}{sf.suffix}")
+                    shutil.move(sf, temp_dest)
                     all_items.append({
                         "is_selected": True,
                         "source_path": temp_dest,
@@ -329,7 +331,7 @@ class IntegrateFilesTask(QRunnable):
                 for idx, item in enumerate(all_items, start=1):
                     final_name = fmt.format(idx) + item["clean_name"]
                     final_path = self.target_folder / final_name
-                    temp_name = ".__file_manager__" + uuid.uuid4().hex + item["source_path"].suffix
+                    temp_name = TEMP_PREFIX + uuid.uuid4().hex + item["source_path"].suffix
                     temp_path = self.target_folder / temp_name
 
                     temp_plan.append({
@@ -374,8 +376,9 @@ class IntegrateFilesTask(QRunnable):
                 # Procesar archivos seleccionados según el caso
                 selected_processed = []
                 if self.selected_case == "CASE_2_CLEAN":
+                    sorted_selected = natsorted(self.selected_file_paths, key=lambda f: f.name.lower())
                     # Sumar la numeración del último archivo
-                    for idx, sf in enumerate(self.selected_file_paths, start=1):
+                    for idx, sf in enumerate(sorted_selected, start=1):
                         num = last_num + idx
                         cname = re.sub(r"^\d+(?:_|\.\s*)", "", sf.name)
                         final_name = fmt.format(num) + cname
@@ -405,8 +408,8 @@ class IntegrateFilesTask(QRunnable):
 
                 # Mover seleccionados a la carpeta destino con nombres temporales
                 for sf, final_name in selected_processed:
-                    temp_dest = self.target_folder / (f".__file_manager_import__{uuid.uuid4().hex}{sf.suffix}")
-                    sf.rename(temp_dest)
+                    temp_dest = self.target_folder / (f"{TEMP_PREFIX}import_{uuid.uuid4().hex}{sf.suffix}")
+                    shutil.move(sf, temp_dest)
                     items_plan.append({
                         "source_path": temp_dest,
                         "final_name": final_name
@@ -415,7 +418,7 @@ class IntegrateFilesTask(QRunnable):
                 # Renombrar a nombres temporales de fase 1
                 temp_plan = []
                 for item in items_plan:
-                    temp_name = ".__file_manager__" + uuid.uuid4().hex + item["source_path"].suffix
+                    temp_name = TEMP_PREFIX + uuid.uuid4().hex + item["source_path"].suffix
                     temp_path = self.target_folder / temp_name
                     final_path = self.target_folder / item["final_name"]
                     temp_plan.append({
@@ -435,13 +438,23 @@ class IntegrateFilesTask(QRunnable):
             # Cargar carpeta actualizada al finalizar
             updated_files = [
                 f for f in self.target_folder.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
+                if f.is_file() and not f.name.startswith(TEMP_PREFIX)
             ]
             updated_files.sort(key=lambda file: file.name.lower())
 
             self.signals.finished.emit(updated_files)
 
         except Exception as error:
+            # Limpiar archivos temporales creados antes de emitir la señal de error
+            try:
+                for item in self.target_folder.iterdir():
+                    if item.is_file() and item.name.startswith(TEMP_PREFIX):
+                        try:
+                            item.unlink()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             self.signals.error.emit(f"Error durante la integración de archivos: {error}")
 
 
@@ -457,7 +470,7 @@ class ResetNumerationTask(QRunnable):
         try:
             all_entries = [
                 f for f in self.folder_path.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
+                if f.is_file() and not f.name.startswith(TEMP_PREFIX)
             ]
             total_files = len(all_entries)
             if total_files == 0:
@@ -470,7 +483,7 @@ class ResetNumerationTask(QRunnable):
                 original_name = file.name
                 clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", original_name)
                 if clean_name != original_name:
-                    temp_name = ".__file_manager__" + uuid.uuid4().hex + file.suffix
+                    temp_name = TEMP_PREFIX + uuid.uuid4().hex + file.suffix
                     temp_path = self.folder_path / temp_name
                     final_path = self.folder_path / clean_name
                     temp_plan.append({
@@ -493,7 +506,7 @@ class ResetNumerationTask(QRunnable):
             # Volver a leer la carpeta de archivos actualizada
             updated_files = [
                 f for f in self.folder_path.iterdir()
-                if f.is_file() and not f.name.startswith(".__file_manager__")
+                if f.is_file() and not f.name.startswith(TEMP_PREFIX)
             ]
             updated_files.sort(key=lambda file: file.name.lower())
 
@@ -667,7 +680,7 @@ class FileUtils:
         # Comprobar bloqueos de archivos en seleccionados y en carpeta destino
         existing_entries = [
             f for f in parent.folder.iterdir()
-            if f.is_file() and not f.name.startswith(".__file_manager__")
+            if f.is_file() and not f.name.startswith(TEMP_PREFIX)
         ]
         if self.check_files_locked(parent, selected_paths + existing_entries):
             return
@@ -687,7 +700,8 @@ class FileUtils:
             if confirm != QMessageBox.StandardButton.Yes:
                 return
 
-        progress_dialog = QProgressDialog("Integrando archivos...", "Cancelar", 0, 0, parent)
+        progress_dialog = QProgressDialog("Integrando archivos...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
         progress_dialog.setWindowTitle("Integrar Archivos")
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setMinimumDuration(0)
@@ -762,7 +776,8 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", "Cancelar", 0, 0, parent)
+        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
         progress_dialog.setWindowTitle("Formato de centenas")
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setMinimumDuration(0)
@@ -815,7 +830,8 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Des-enumerando carpeta...", "Cancelar", 0, 0, parent)
+        progress_dialog = QProgressDialog("Des-enumerando carpeta...", None, 0, 0, parent)
+        progress_dialog.setCancelButton(None)
         progress_dialog.setWindowTitle("Des-enumerando carpeta")
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setMinimumDuration(0)
