@@ -155,6 +155,296 @@ class ApplyOrderTask(QRunnable):
             self.signals.error.emit(f"Error durante el renombrado: {error}")
 
 
+class FormatHundredsTask(QRunnable):
+    def __init__(self, folder_path, files, file_utils):
+        super().__init__()
+        self.folder_path = Path(folder_path)
+        self.files = files
+        self.file_utils = file_utils
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            total_files = len(self.files)
+            if total_files == 0:
+                self.signals.finished.emit(True)
+                return
+
+            number_format = "{:03d}. "
+
+            # FASE 1: Plan
+            temp_files = []
+            for index, file in enumerate(self.files, start=1):
+                temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
+                temp_path = self.folder_path / temp_name
+
+                final_name = number_format.format(index) + file.clean_name
+                final_path = self.folder_path / final_name
+
+                temp_files.append({
+                    "file": file,
+                    "temp_path": temp_path,
+                    "final_path": final_path
+                })
+
+            # FASE 2: Backup
+            self.signals.progress.emit(0, total_files * 2, "Creando respaldo...")
+            self.file_utils.create_backup_sync(temp_files, self.folder_path)
+
+            # FASE 3: Originales -> Temporales
+            for idx, item in enumerate(temp_files, start=1):
+                item["file"].path.rename(item["temp_path"])
+                self.signals.progress.emit(idx, total_files * 2, f"Paso 1/2: renombrando {idx}/{total_files}")
+
+            # FASE 4: Temporales -> Definitivos
+            for idx, item in enumerate(temp_files, start=1):
+                temp_path = item["temp_path"]
+                final_path = item["final_path"]
+                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
+                item["file"].path = final_path
+                item["file"].original_path = final_path
+                item["file"].original_name = final_path.name
+                item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
+                self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando formato de centenas {idx}/{total_files}")
+
+            # FASE 5: Eliminar backup
+            backup_path = self.folder_path / BACKUP_FILENAME
+            if backup_path.exists():
+                backup_path.unlink()
+
+            self.signals.finished.emit(True)
+        except Exception as error:
+            recovered = self.file_utils.recover_backup_sync(self.folder_path)
+            if recovered:
+                for file in self.files:
+                    file.path = file.original_path
+            self.signals.error.emit(f"Error durante el cambio a centenas: {error}")
+
+
+def clean_prefix(filename):
+    p = Path(filename)
+    stem = p.stem
+    suffix = p.suffix
+    cleaned_stem = re.sub(r"^(?:[a-zA-Z]{1,5}[-_.\s]*)?\d+[:._\s-]*", "", stem)
+    cleaned_stem = cleaned_stem.strip()
+    return f"{cleaned_stem}{suffix}" if cleaned_stem else filename
+
+
+def is_folder_cleanly_numbered(files):
+    if not files:
+        return False
+
+    for idx, file in enumerate(files, start=1):
+        name = file.path.name if hasattr(file, "path") else Path(file).name
+        m = re.match(r"^(\d+)(?:_|\.\s*|-+\s*)", name)
+        if not m:
+            return False
+        if int(m.group(1)) != idx:
+            return False
+    return True
+
+
+def classify_selected_files(selected_paths):
+    std_matches = []
+    has_any_prefix = False
+
+    for path_obj in selected_paths:
+        name = path_obj.name
+        m_std = re.match(r"^(\d{2,4})(?:_|\.\s*|-+\s*)", name)
+        if m_std:
+            std_matches.append(int(m_std.group(1)))
+
+        if re.match(r"^(?:[a-zA-Z]{1,5}[-_.\s]*)?\d+[:._\s-]*", name):
+            has_any_prefix = True
+
+    if len(std_matches) == len(selected_paths):
+        if std_matches == list(range(1, len(selected_paths) + 1)):
+            return "CASE_2_CLEAN"
+        else:
+            return "CASE_3_STRANGE_OR_GAPS"
+
+    if has_any_prefix:
+        return "CASE_3_STRANGE_OR_GAPS"
+
+    return "CASE_1_NO_NUMERATION"
+
+
+class IntegrateFilesTask(QRunnable):
+    def __init__(self, target_folder, selected_file_paths, folder_is_numbered, selected_case, file_utils):
+        super().__init__()
+        self.target_folder = Path(target_folder)
+        self.selected_file_paths = [Path(p) for p in selected_file_paths]
+        self.folder_is_numbered = folder_is_numbered
+        self.selected_case = selected_case
+        self.file_utils = file_utils
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            from natsort import natsorted
+            self.signals.progress.emit(0, 0, "Analizando archivos a integrar...")
+
+            existing_files = [
+                f for f in self.target_folder.iterdir()
+                if f.is_file() and not f.name.startswith(".__file_manager__")
+            ]
+
+            if not self.folder_is_numbered:
+                # Carpeta destino no numerada:
+                # Se limpia el formato de los existentes y seleccionados, se junta todo, se ordena alfabéticamente y se enumera de 1 a N.
+                all_items = []
+                for ef in existing_files:
+                    cname = clean_prefix(ef.name)
+                    all_items.append({
+                        "is_selected": False,
+                        "source_path": ef,
+                        "clean_name": cname
+                    })
+
+                for sf in self.selected_file_paths:
+                    cname = clean_prefix(sf.name)
+                    # Mover el archivo a la carpeta destino con un nombre temporal
+                    temp_dest = self.target_folder / (f".__file_manager_import__{uuid.uuid4().hex}{sf.suffix}")
+                    sf.rename(temp_dest)
+                    all_items.append({
+                        "is_selected": True,
+                        "source_path": temp_dest,
+                        "clean_name": cname
+                    })
+
+                # Ordenar alfabéticamente usando natsort
+                all_items = natsorted(all_items, key=lambda x: x["clean_name"].lower())
+
+                total_count = len(all_items)
+                if total_count < 100:
+                    fmt = "{:02d}. "
+                elif total_count < 1000:
+                    fmt = "{:03d}. "
+                else:
+                    fmt = "{:04d}. "
+
+                temp_plan = []
+                for idx, item in enumerate(all_items, start=1):
+                    final_name = fmt.format(idx) + item["clean_name"]
+                    final_path = self.target_folder / final_name
+                    temp_name = ".__file_manager__" + uuid.uuid4().hex + item["source_path"].suffix
+                    temp_path = self.target_folder / temp_name
+
+                    temp_plan.append({
+                        "source_path": item["source_path"],
+                        "temp_path": temp_path,
+                        "final_path": final_path
+                    })
+
+                # Mover todos a temp
+                for idx, tp in enumerate(temp_plan, start=1):
+                    tp["source_path"].rename(tp["temp_path"])
+                    self.signals.progress.emit(idx, len(temp_plan) * 2, f"Integrando (fase 1) {idx}/{len(temp_plan)}")
+
+                # Mover todos de temp a final
+                for idx, tp in enumerate(temp_plan, start=1):
+                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
+                    self.signals.progress.emit(len(temp_plan) + idx, len(temp_plan) * 2, f"Integrando (fase 2) {idx}/{len(temp_plan)}")
+
+            else:
+                # Carpeta destino SÍ está numerada
+                existing_files = natsorted(existing_files, key=lambda f: f.name.lower())
+                last_num = len(existing_files)
+                total_new_count = last_num + len(self.selected_file_paths)
+
+                if total_new_count < 100:
+                    fmt = "{:02d}. "
+                elif total_new_count < 1000:
+                    fmt = "{:03d}. "
+                else:
+                    fmt = "{:04d}. "
+
+                # Re-formatear existentes si la cantidad total cambia de nivel (ej. <100 a >=100)
+                items_plan = []
+                for idx, ef in enumerate(existing_files, start=1):
+                    cname = re.sub(r"^\d+(?:_|\.\s*)", "", ef.name)
+                    final_name = fmt.format(idx) + cname
+                    items_plan.append({
+                        "source_path": ef,
+                        "final_name": final_name
+                    })
+
+                # Procesar archivos seleccionados según el caso
+                selected_processed = []
+                if self.selected_case == "CASE_2_CLEAN":
+                    # Sumar la numeración del último archivo
+                    for idx, sf in enumerate(self.selected_file_paths, start=1):
+                        num = last_num + idx
+                        cname = re.sub(r"^\d+(?:_|\.\s*)", "", sf.name)
+                        final_name = fmt.format(num) + cname
+                        selected_processed.append((sf, final_name))
+
+                elif self.selected_case == "CASE_1_NO_NUMERATION":
+                    # Colocar al final con numeración continua
+                    for idx, sf in enumerate(self.selected_file_paths, start=1):
+                        num = last_num + idx
+                        cname = sf.name
+                        final_name = fmt.format(num) + cname
+                        selected_processed.append((sf, final_name))
+
+                else:  # CASE_3_STRANGE_OR_GAPS
+                    # Limpiar formato, ordenar alfabéticamente y añadir numeración al final
+                    cleaned_files = []
+                    for sf in self.selected_file_paths:
+                        cname = clean_prefix(sf.name)
+                        cleaned_files.append((sf, cname))
+
+                    cleaned_files = natsorted(cleaned_files, key=lambda x: x[1].lower())
+
+                    for idx, (sf, cname) in enumerate(cleaned_files, start=1):
+                        num = last_num + idx
+                        final_name = fmt.format(num) + cname
+                        selected_processed.append((sf, final_name))
+
+                # Mover seleccionados a la carpeta destino con nombres temporales
+                for sf, final_name in selected_processed:
+                    temp_dest = self.target_folder / (f".__file_manager_import__{uuid.uuid4().hex}{sf.suffix}")
+                    sf.rename(temp_dest)
+                    items_plan.append({
+                        "source_path": temp_dest,
+                        "final_name": final_name
+                    })
+
+                # Renombrar a nombres temporales de fase 1
+                temp_plan = []
+                for item in items_plan:
+                    temp_name = ".__file_manager__" + uuid.uuid4().hex + item["source_path"].suffix
+                    temp_path = self.target_folder / temp_name
+                    final_path = self.target_folder / item["final_name"]
+                    temp_plan.append({
+                        "source_path": item["source_path"],
+                        "temp_path": temp_path,
+                        "final_path": final_path
+                    })
+
+                for idx, tp in enumerate(temp_plan, start=1):
+                    tp["source_path"].rename(tp["temp_path"])
+                    self.signals.progress.emit(idx, len(temp_plan) * 2, f"Integrando (fase 1) {idx}/{len(temp_plan)}")
+
+                for idx, tp in enumerate(temp_plan, start=1):
+                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
+                    self.signals.progress.emit(len(temp_plan) + idx, len(temp_plan) * 2, f"Integrando (fase 2) {idx}/{len(temp_plan)}")
+
+            # Cargar carpeta actualizada al finalizar
+            updated_files = [
+                f for f in self.target_folder.iterdir()
+                if f.is_file() and not f.name.startswith(".__file_manager__")
+            ]
+            updated_files.sort(key=lambda file: file.name.lower())
+
+            self.signals.finished.emit(updated_files)
+
+        except Exception as error:
+            self.signals.error.emit(f"Error durante la integración de archivos: {error}")
+
+
 class ResetNumerationTask(QRunnable):
     def __init__(self, folder_path, file_utils):
         super().__init__()
@@ -348,6 +638,159 @@ class FileUtils:
                     "Error",
                     "No se pudo completar la recuperación del respaldo."
                 )
+
+    def integrate_files(self, parent, model):
+        if not parent.folder or not parent.folder.exists():
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada.")
+            return
+
+        folder_is_numbered = is_folder_cleanly_numbered(model.files)
+
+        if not folder_is_numbered:
+            QMessageBox.warning(
+                parent,
+                "Carpeta no numerada",
+                "Esta carpeta no esta numerada, los archivos que se muevas aqui estarán en orden alfabético"
+            )
+
+        # Diálogo para seleccionar archivos a integrar
+        selected_files, _ = QFileDialog.getOpenFileNames(
+            parent,
+            "Seleccionar archivos a integrar"
+        )
+
+        if not selected_files:
+            return
+
+        selected_paths = [Path(p) for p in selected_files]
+
+        # Comprobar bloqueos de archivos en seleccionados y en carpeta destino
+        existing_entries = [
+            f for f in parent.folder.iterdir()
+            if f.is_file() and not f.name.startswith(".__file_manager__")
+        ]
+        if self.check_files_locked(parent, selected_paths + existing_entries):
+            return
+
+        selected_case = classify_selected_files(selected_paths)
+
+        if folder_is_numbered and selected_case == "CASE_3_STRANGE_OR_GAPS":
+            confirm = QMessageBox.question(
+                parent,
+                "Formato no estándar o numeración incompleta",
+                "Los archivos seleccionados tienen formatos extraños de numeración o saltos en la secuencia.\n\n"
+                "Se limpiará su formato de inicio, se ordenarán alfabéticamente y se les añadirá numeración "
+                "continua al final de la carpeta destino.\n\n¿Deseas continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+        progress_dialog = QProgressDialog("Integrando archivos...", "Cancelar", 0, 0, parent)
+        progress_dialog.setWindowTitle("Integrar Archivos")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = IntegrateFilesTask(
+            parent.folder,
+            selected_paths,
+            folder_is_numbered,
+            selected_case,
+            self
+        )
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(updated_files):
+            progress_dialog.close()
+            model.set_files(updated_files)
+            QMessageBox.information(parent, "Éxito", "Archivos integrados correctamente.")
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+            self.load_folder(parent, model)
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
+
+    def format_hundreds(self, parent, model):
+        if not parent.folder or not model.files:
+            QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada o la carpeta está vacía.")
+            return
+
+        # Comprobar si los archivos ya están con formato de 3 o más dígitos (000. )
+        has_2digit_or_1digit = False
+        for file in model.files:
+            match = re.match(r"^(\d+)(?:_|\.\s*)", file.path.name)
+            if match:
+                digits_len = len(match.group(1))
+                if digits_len < 3:
+                    has_2digit_or_1digit = True
+                    break
+
+        if not has_2digit_or_1digit:
+            QMessageBox.information(
+                parent,
+                "Información",
+                "La carpeta ya se encuentra con el formato de centenas ('000. ')."
+            )
+            return
+
+        file_paths = [f.path for f in model.files]
+        if self.check_files_locked(parent, file_paths):
+            return
+
+        confirm = QMessageBox.question(
+            parent,
+            "Pasar a formato de centenas",
+            "¿Deseas cambiar la numeración de los archivos en esta carpeta al formato de centenas ('001. ')?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", "Cancelar", 0, 0, parent)
+        progress_dialog.setWindowTitle("Formato de centenas")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        task = FormatHundredsTask(parent.folder, model.files, self)
+
+        def on_progress(current, total, message):
+            progress_dialog.setLabelText(message)
+            if total > 0:
+                progress_dialog.setMaximum(total)
+                progress_dialog.setValue(current)
+
+        def on_finished(result):
+            progress_dialog.close()
+            model.layoutChanged.emit()
+
+        def on_error(err_msg):
+            progress_dialog.close()
+            QMessageBox.critical(parent, "Error", err_msg)
+            model.layoutChanged.emit()
+
+        task.signals.progress.connect(on_progress)
+        task.signals.finished.connect(on_finished)
+        task.signals.error.connect(on_error)
+
+        self.thread_pool.start(task)
 
     def reset_numeration_folder(self, parent, model):
         if not parent.folder:

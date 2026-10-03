@@ -108,6 +108,20 @@ class WMain(QMainWindow):
         )
         menu_utilidades.addAction(ac_recover_failed)
 
+        menu_utilidades.addSeparator()
+
+        ac_format_hundreds = QAction("Pasar a formato de centenas", self)
+        ac_format_hundreds.triggered.connect(
+            lambda: self.file_utils.format_hundreds(self, self.model)
+        )
+        menu_utilidades.addAction(ac_format_hundreds)
+
+        ac_integrate_files = QAction("Integrar Archivos", self)
+        ac_integrate_files.triggered.connect(
+            lambda: self.file_utils.integrate_files(self, self.model)
+        )
+        menu_utilidades.addAction(ac_integrate_files)
+
 
     def openFolderExplorer(self):
         if self.folder and self.folder.exists():
