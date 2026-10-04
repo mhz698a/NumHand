@@ -101,7 +101,7 @@ class WMain(QMainWindow):
         )
         menu_utilidades.addAction(ac_desnum_folder)
 
-        ac_recover_failed = QAction("Recuperar nombres fallidos", self)
+        ac_recover_failed = QAction("Recover failed renames", self)
         ac_recover_failed.setShortcut("Ctrl+Shift+R")
         ac_recover_failed.triggered.connect(
             lambda: self.file_utils.recover_failed_names(self, self.model)
@@ -110,13 +110,13 @@ class WMain(QMainWindow):
 
         menu_utilidades.addSeparator()
 
-        ac_format_hundreds = QAction("Pasar a formato de centenas", self)
+        ac_format_hundreds = QAction("Convert to hundreds format", self)
         ac_format_hundreds.triggered.connect(
             lambda: self.file_utils.format_hundreds(self, self.model)
         )
         menu_utilidades.addAction(ac_format_hundreds)
 
-        ac_integrate_files = QAction("Integrar Archivos", self)
+        ac_integrate_files = QAction("Integrate Files", self)
         ac_integrate_files.triggered.connect(
             lambda: self.file_utils.integrate_files(self, self.model)
         )
@@ -135,8 +135,8 @@ class WMain(QMainWindow):
     def closeEvent(self, event):
         box_confirmacion = QMessageBox.question(
             self,
-            "Salir de la aplicación",
-            "¿Estás seguro de que deseas salir?",
+            "Exit the application",
+            "Are you sure you want to exit?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
