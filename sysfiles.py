@@ -1,6 +1,7 @@
 import uuid
 import json
 import re
+import time
 
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
@@ -8,7 +9,7 @@ from PyQt6.QtCore import QThreadPool, Qt
 
 import syswall
 
-from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files
+from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
 from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
@@ -437,14 +438,57 @@ class FileUtils:
             )
             return False
 
+    @staticmethod
+    def _is_retryable_backup_error(error):
+        return (
+            isinstance(error, PermissionError)
+            or getattr(error, "errno", None) in {11, 13, 16}
+            or getattr(error, "winerror", None) in {32, 33}
+        )
+
+    def _read_backup_with_retry(self, backup_path, max_attempts=10, delay=1.0):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with backup_path.open("r", encoding="utf-8") as backup_file:
+                    return json.load(backup_file)
+            except json.JSONDecodeError as error:
+                if attempt == max_attempts:
+                    raise error
+                time.sleep(delay)
+            except OSError as error:
+                if not self._is_retryable_backup_error(error) or attempt == max_attempts:
+                    raise
+                print(
+                    f"El respaldo está ocupado; reintentando acceso "
+                    f"({attempt + 1}/{max_attempts})..."
+                )
+                time.sleep(delay)
+
+        raise RuntimeError("No se pudo acceder al respaldo.")
+
+    def _unlink_backup_with_retry(self, backup_path, max_attempts=10, delay=1.0):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                backup_path.unlink()
+                return
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                if not self._is_retryable_backup_error(error) or attempt == max_attempts:
+                    raise
+                print(
+                    f"El respaldo sigue ocupado; reintentando eliminación "
+                    f"({attempt + 1}/{max_attempts})..."
+                )
+                time.sleep(delay)
+
     def recover_backup_sync(self, folder_path):
         backup_path = folder_path / BACKUP_FILENAME
         if not backup_path.exists():
             return True
 
         try:
-            with backup_path.open("r", encoding="utf-8") as backup_file:
-                backup = json.load(backup_file)
+            backup = self._read_backup_with_retry(backup_path)
         except Exception as error:
             print("No se pudo leer el respaldo:", error)
             return False
@@ -526,7 +570,12 @@ class FileUtils:
                     + current_path.suffix
                 )
                 recovery_path = folder_path / recovery_name
-                current_path.rename(recovery_path)
+                rename_with_retry(
+                    current_path,
+                    recovery_path,
+                    max_attempts=10,
+                    delay=1.0
+                )
 
                 recovery_temp_files.append({
                     "recovery_path": recovery_path,
@@ -534,17 +583,38 @@ class FileUtils:
                 })
 
             for item in recovery_temp_files:
-                item["recovery_path"].rename(item["original_path"])
+                rename_with_retry(
+                    item["recovery_path"],
+                    item["original_path"],
+                    max_attempts=10,
+                    delay=1.0
+                )
 
             for item in recovery_plan:
                 if not item["original_path"].exists():
                     raise RuntimeError(f"No se pudo verificar {item['original_path'].name}")
 
-            backup_path.unlink()
+            self._unlink_backup_with_retry(backup_path)
             print("Recuperación completada correctamente.")
             return True
 
         except Exception as error:
+            # Rollback para que un reintento posterior no deje archivos
+            # ocultos en los temporales de recuperación.
+            for item in reversed(recovery_temp_files):
+                recovery_path = item["recovery_path"]
+                original_path = item["original_path"]
+                if recovery_path.exists() and not original_path.exists():
+                    try:
+                        rename_with_retry(
+                            recovery_path,
+                            original_path,
+                            max_attempts=10,
+                            delay=1.0
+                        )
+                    except Exception:
+                        pass
+
             print("Error durante la recuperación:", error)
             return False
 
