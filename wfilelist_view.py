@@ -1,16 +1,6 @@
-from PyQt6.QtCore import ( # type: ignore
-    Qt,
-    QMimeData,
-)
-from PyQt6.QtWidgets import ( # type: ignore
-    QListView, 
-)
-from PyQt6.QtGui import ( # type: ignore
-    QDrag,
-    QCursor,
-    QPainter,
-    QPen,
-)
+from PyQt6.QtCore import (Qt, QMimeData,)
+from PyQt6.QtWidgets import (QListView, )
+from PyQt6.QtGui import (QDrag, QCursor, QPainter, QPen,)
 
 class FileListView(QListView):
 

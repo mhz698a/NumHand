@@ -1,5 +1,7 @@
-from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QLineEdit, QAbstractItemView
-from PyQt6.QtCore import (Qt)
+from PyQt6.QtWidgets import (
+    QStyledItemDelegate, QStyle, QLineEdit, QAbstractItemView, QStyleOptionButton
+)
+from PyQt6.QtCore import Qt, QRect, QEvent
 from pathlib import Path
 
 
@@ -9,6 +11,12 @@ class FileDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.main_window = main_window
 
+    def _get_checkbox_rect(self, rect: QRect) -> QRect:
+        """Calcula la posición y tamaño del checkbox."""
+        cb_size = 18
+        y = rect.y() + (rect.height() - cb_size) // 2
+        return QRect(rect.x() + 85, y, cb_size, cb_size)
+
     def paint(self, painter, option, index):
         painter.save()
         rect = option.rect
@@ -16,7 +24,7 @@ class FileDelegate(QStyledItemDelegate):
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, option.palette.highlight())
 
-        # Dibujar icono de arrastre
+        # 1. Icono de arrastre (x = 8)
         painter.drawText(
             rect.x() + 8,
             rect.y(),
@@ -26,34 +34,69 @@ class FileDelegate(QStyledItemDelegate):
             "☷"
         )
 
+        # 2. Número de índice (x = 45)
+        number_str = f"{index.row() + 1:03d}"
+        painter.drawText(
+            rect.x() + 45,
+            rect.y(),
+            35,
+            rect.height(),
+            Qt.AlignmentFlag.AlignVCenter,
+            number_str
+        )
+
+        # 3. Dibujar Checkbox (x = 85)
+        check_state = index.data(Qt.ItemDataRole.CheckStateRole)
+        cb_opt = QStyleOptionButton()
+        cb_opt.rect = self._get_checkbox_rect(rect)
+        cb_opt.state = QStyle.StateFlag.State_Enabled
+
+        if check_state == Qt.CheckState.Checked:
+            cb_opt.state |= QStyle.StateFlag.State_On
+        else:
+            cb_opt.state |= QStyle.StateFlag.State_Off
+
         view = option.widget
+        style = view.style() if view else QStyle()
+        style.drawPrimitive(QStyle.PrimitiveElement.PE_IndicatorCheckBox, cb_opt, painter, view)
+
+        # 4. Dibujar texto del archivo (desplazado a x = 115)
         is_editing = False
         if isinstance(view, QAbstractItemView):
             is_editing = view.indexWidget(index) is not None
 
-        if is_editing:
-            # Si se está editando, mostrar únicamente el número de índice
-            number_str = f"{index.row() + 1:03d}   "
+        if not is_editing:
             painter.drawText(
-                rect.x() + 45,
+                rect.x() + 115,
                 rect.y(),
-                rect.width() - 45,
-                rect.height(),
-                Qt.AlignmentFlag.AlignVCenter,
-                number_str
-            )
-        else:
-            # En estado normal, dibujar el texto completo (número + nombre de archivo)
-            painter.drawText(
-                rect.x() + 45,
-                rect.y(),
-                rect.width() - 45,
+                rect.width() - 115,
                 rect.height(),
                 Qt.AlignmentFlag.AlignVCenter,
                 index.data()
             )
 
         painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        # 1. Bloquear renombrado si el doble clic ocurre a la izquierda del texto (x < 115)
+        if event.type() == QEvent.Type.MouseButtonDblClick:
+            if event.pos().x() < option.rect.x() + 115:
+                return True
+
+        # 2. Capturar el clic sobre la zona del checkbox
+        if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            cb_rect = self._get_checkbox_rect(option.rect)
+            if cb_rect.contains(event.pos()):
+                current_state = index.data(Qt.ItemDataRole.CheckStateRole)
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if current_state == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
+                return True
+
+        return super().editorEvent(event, model, option, index)
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
@@ -62,10 +105,9 @@ class FileDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         editor = QLineEdit(parent)
-        # SOLUCIÓN AL DESAJUSTE: Forzar un fondo sólido y remover paddings nativos del OS
         editor.setStyleSheet("""
             QLineEdit {
-                background-color: #1e1e1e; /* Ajusta este color al fondo de tu app */
+                background-color: #1e1e1e;
                 color: white;
                 border: 1px solid #3a3a3a;
                 padding: 0px;
@@ -76,12 +118,10 @@ class FileDelegate(QStyledItemDelegate):
 
     def updateEditorGeometry(self, editor, option, index):
         rect = option.rect
-        # Posicionar el editor después del icono y el número de índice
-        # Se redujo levemente el offset en X (de 90 a 85) para coincidir con tu margen de dibujo.
         editor.setGeometry(
-            rect.x() + 85,
+            rect.x() + 115,
             rect.y() + 4,
-            rect.width() - 95,
+            rect.width() - 125,
             rect.height() - 8
         )
 
@@ -90,7 +130,6 @@ class FileDelegate(QStyledItemDelegate):
             return
 
         file_entry = self.main_window.model.files[index.row()]
-        # Nombre sin prefijo numérico inicial y sin extensión para el renombrado rápido
         clean_base_name = Path(file_entry.clean_name).stem
         editor.setText(clean_base_name)
         editor.selectAll()
