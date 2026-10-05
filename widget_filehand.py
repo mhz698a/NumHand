@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate, QStyle, QLineEdit, QAbstractItemView, QStyleOptionButton
 )
 from PyQt6.QtCore import Qt, QRect, QEvent
+from PyQt6.QtGui import QColor
 from pathlib import Path
 
 
