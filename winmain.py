@@ -13,7 +13,7 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from sysfiles import FileUtils
-
+from wutils_foobar2000 import check_foobar2000_playing_file
 
 class WMain(QMainWindow):
 
@@ -148,7 +148,7 @@ class WMain(QMainWindow):
 
         ac_check_foobar2000 = QAction("Check foobar2000 playing file", self)
         ac_check_foobar2000.triggered.connect(
-            self.check_foobar2000_playing_file
+            lambda: check_foobar2000_playing_file(self)
         )
         menu_utilidades.addAction(ac_check_foobar2000)
 
