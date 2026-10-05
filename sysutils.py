@@ -10,7 +10,8 @@ from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 
 class WorkerSignals(QObject):
-    progress = pyqtSignal(int, int, str)  # current, total, message
+    # sub_current, sub_total, sub_msg, main_current, main_total, main_msg
+    progress = pyqtSignal(int, int, str, int, int, str)
     finished = pyqtSignal(object)         # result payload
     error = pyqtSignal(str)              # error message
 
@@ -28,13 +29,19 @@ class LoadFolderTask(QRunnable):
             # Check backup if exists
             backup_path = self.folder_path / BACKUP_FILENAME
             if backup_path.exists():
-                self.signals.progress.emit(0, 0, "Recuperando respaldo pendiente...")
+                self.signals.progress.emit(
+                    0, 0, "Recuperando respaldo pendiente...",
+                    0, 2, "Recuperación de respaldo"
+                )
                 recovered = self.file_utils.recover_backup_sync(self.folder_path)
                 if not recovered:
                     self.signals.error.emit("No se pudo completar la recuperación del respaldo pendiente.")
                     return
 
-            self.signals.progress.emit(0, 0, "Leyendo archivos...")
+            self.signals.progress.emit(
+                0, 0, "Iniciando lectura de archivos...",
+                0, 2, "Cargando carpeta"
+            )
             all_entries = list(self.folder_path.iterdir())
             total = len(all_entries)
             
@@ -43,9 +50,15 @@ class LoadFolderTask(QRunnable):
                 if entry.is_file() and not entry.name.startswith(TEMP_PREFIX):
                     files.append(entry)
                 if total > 0 and (idx % 10 == 0 or idx == total):
-                    self.signals.progress.emit(idx, total, f"Leyendo archivo {idx} de {total}...")
+                    self.signals.progress.emit(
+                        idx, total, f"Leyendo archivo {idx} de {total}: {entry.name}",
+                        1, 2, "Leyendo archivos de la carpeta"
+                    )
 
-            self.signals.progress.emit(total, total, "Ordenando archivos...")
+            self.signals.progress.emit(
+                1, 1, "Ordenando lista de archivos...",
+                2, 2, "Finalizando carga"
+            )
             files.sort(key=lambda file: file.name.lower())
 
             self.signals.finished.emit(files)
@@ -76,6 +89,9 @@ class ApplyOrderTask(QRunnable):
             else:
                 number_format = "{:04d}. "
 
+            # Total de operaciones generales: Total archivos (Respaldo) + Total archivos (Temp) + Total archivos (Final)
+            total_main_steps = total_files * 3
+
             # FASE 1: Plan
             temp_files = []
             for index, file in enumerate(self.files, start=1):
@@ -92,14 +108,21 @@ class ApplyOrderTask(QRunnable):
                     "final_path": final_path
                 })
 
-            # FASE 2: Backup
-            self.signals.progress.emit(0, total_files * 2, "Creando respaldo...")
-            self.file_utils.create_backup_sync(temp_files, self.folder_path)
+            # FASE 2: Backup con progreso detallado
+            def backup_progress_cb(sub_curr, sub_tot, filename):
+                msg = f"Calculando hash y respaldando {sub_curr}/{sub_tot}: {filename}"
+                main_msg = f"Etapa 1/3: Creando respaldo ({sub_curr}/{sub_tot})"
+                self.signals.progress.emit(sub_curr, sub_tot, msg, sub_curr, total_main_steps, main_msg)
+
+            self.file_utils.create_backup_sync(temp_files, self.folder_path, progress_callback=backup_progress_cb)
 
             # FASE 3: Originales -> Temporales
             for idx, item in enumerate(temp_files, start=1):
                 item["file"].path.rename(item["temp_path"])
-                self.signals.progress.emit(idx, total_files * 2, f"Paso 1/2: renombrando {idx}/{total_files}")
+                sub_msg = f"Renombrando a temporal {idx}/{total_files}: {item['file'].original_name}"
+                main_idx = total_files + idx
+                main_msg = f"Etapa 2/3: Renombrado temporal ({idx}/{total_files})"
+                self.signals.progress.emit(idx, total_files, sub_msg, main_idx, total_main_steps, main_msg)
 
             # FASE 4: Temporales -> Definitivos
             for idx, item in enumerate(temp_files, start=1):
@@ -109,9 +132,12 @@ class ApplyOrderTask(QRunnable):
                 item["file"].path = final_path
                 item["file"].original_path = final_path
                 item["file"].original_name = final_path.name
-                # clean_name debe incluir la extensión, sin el prefijo numérico inicial
                 item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
-                self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando numeración {idx}/{total_files}")
+
+                sub_msg = f"Aplicando numeración final {idx}/{total_files}: {final_path.name}"
+                main_idx = (total_files * 2) + idx
+                main_msg = f"Etapa 3/3: Aplicando numeración final ({idx}/{total_files})"
+                self.signals.progress.emit(idx, total_files, sub_msg, main_idx, total_main_steps, main_msg)
 
             # FASE 5: Eliminar backup
             backup_path = self.folder_path / BACKUP_FILENAME
@@ -145,11 +171,12 @@ class FormatHundredsTask(QRunnable):
                 return
 
             number_format = "{:03d}. "
+            total_main_steps = total_files * 3
 
             # FASE 1: Plan
             temp_files = []
             for index, file in enumerate(self.files, start=1):
-                temp_name = ".__file_manager__" + uuid.uuid4().hex + file.path.suffix
+                temp_name = TEMP_PREFIX + uuid.uuid4().hex + file.path.suffix
                 temp_path = self.folder_path / temp_name
 
                 final_name = number_format.format(index) + file.clean_name
@@ -162,13 +189,20 @@ class FormatHundredsTask(QRunnable):
                 })
 
             # FASE 2: Backup
-            self.signals.progress.emit(0, total_files * 2, "Creando respaldo...")
-            self.file_utils.create_backup_sync(temp_files, self.folder_path)
+            def backup_progress_cb(sub_curr, sub_tot, filename):
+                msg = f"Calculando hash y respaldando {sub_curr}/{sub_tot}: {filename}"
+                main_msg = f"Etapa 1/3: Creando respaldo ({sub_curr}/{sub_tot})"
+                self.signals.progress.emit(sub_curr, sub_tot, msg, sub_curr, total_main_steps, main_msg)
+
+            self.file_utils.create_backup_sync(temp_files, self.folder_path, progress_callback=backup_progress_cb)
 
             # FASE 3: Originales -> Temporales
             for idx, item in enumerate(temp_files, start=1):
                 item["file"].path.rename(item["temp_path"])
-                self.signals.progress.emit(idx, total_files * 2, f"Paso 1/2: renombrando {idx}/{total_files}")
+                sub_msg = f"Renombrando a temporal {idx}/{total_files}: {item['file'].original_name}"
+                main_idx = total_files + idx
+                main_msg = f"Etapa 2/3: Renombrado temporal ({idx}/{total_files})"
+                self.signals.progress.emit(idx, total_files, sub_msg, main_idx, total_main_steps, main_msg)
 
             # FASE 4: Temporales -> Definitivos
             for idx, item in enumerate(temp_files, start=1):
@@ -179,7 +213,11 @@ class FormatHundredsTask(QRunnable):
                 item["file"].original_path = final_path
                 item["file"].original_name = final_path.name
                 item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
-                self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando formato de centenas {idx}/{total_files}")
+
+                sub_msg = f"Aplicando formato de centenas {idx}/{total_files}: {final_path.name}"
+                main_idx = (total_files * 2) + idx
+                main_msg = f"Etapa 3/3: Aplicando formato de centenas ({idx}/{total_files})"
+                self.signals.progress.emit(idx, total_files, sub_msg, main_idx, total_main_steps, main_msg)
 
             # FASE 5: Eliminar backup
             backup_path = self.folder_path / BACKUP_FILENAME
@@ -209,7 +247,10 @@ class IntegrateFilesTask(QRunnable):
     def run(self):
         try:
             from natsort import natsorted
-            self.signals.progress.emit(0, 0, "Analizando archivos a integrar...")
+            self.signals.progress.emit(
+                0, 0, "Analizando archivos a integrar...",
+                0, 2, "Etapa 1/2: Análisis de archivos"
+            )
 
             existing_files = [
                 f for f in self.target_folder.iterdir()
@@ -217,8 +258,6 @@ class IntegrateFilesTask(QRunnable):
             ]
 
             if not self.folder_is_numbered:
-                # Carpeta destino no numerada:
-                # Se limpia el formato de los existentes y seleccionados, se junta todo, se ordena alfabéticamente y se enumera de 1 a N.
                 all_items = []
                 for ef in existing_files:
                     cname = clean_prefix(ef.name)
@@ -230,7 +269,6 @@ class IntegrateFilesTask(QRunnable):
 
                 for sf in self.selected_file_paths:
                     cname = clean_prefix(sf.name)
-                    # Mover el archivo a la carpeta destino con un nombre temporal
                     temp_dest = self.target_folder / (f"{TEMP_PREFIX}import_{uuid.uuid4().hex}{sf.suffix}")
                     shutil.move(sf, temp_dest)
                     all_items.append({
@@ -239,7 +277,6 @@ class IntegrateFilesTask(QRunnable):
                         "clean_name": cname
                     })
 
-                # Ordenar alfabéticamente usando natsort
                 all_items = natsorted(all_items, key=lambda x: x["clean_name"].lower())
 
                 total_count = len(all_items)
@@ -260,21 +297,28 @@ class IntegrateFilesTask(QRunnable):
                     temp_plan.append({
                         "source_path": item["source_path"],
                         "temp_path": temp_path,
-                        "final_path": final_path
+                        "final_path": final_path,
+                        "clean_name": item["clean_name"]
                     })
+
+                total_steps = len(temp_plan) * 2
 
                 # Mover todos a temp
                 for idx, tp in enumerate(temp_plan, start=1):
                     tp["source_path"].rename(tp["temp_path"])
-                    self.signals.progress.emit(idx, len(temp_plan) * 2, f"Integrando (fase 1) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Renombrado temporal {idx}/{len(temp_plan)}: {tp['clean_name']}"
+                    main_msg = f"Etapa 1/2: Moviendo a ubicación temporal ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, idx, total_steps, main_msg)
 
                 # Mover todos de temp a final
                 for idx, tp in enumerate(temp_plan, start=1):
                     rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
-                    self.signals.progress.emit(len(temp_plan) + idx, len(temp_plan) * 2, f"Integrando (fase 2) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Aplicando nombre final {idx}/{len(temp_plan)}: {tp['final_path'].name}"
+                    main_idx = len(temp_plan) + idx
+                    main_msg = f"Etapa 2/2: Aplicando nombres finales ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, main_idx, total_steps, main_msg)
 
             else:
-                # Carpeta destino SÍ está numerada
                 existing_files = natsorted(existing_files, key=lambda f: f.name.lower())
                 last_num = len(existing_files)
                 total_new_count = last_num + len(self.selected_file_paths)
@@ -286,7 +330,6 @@ class IntegrateFilesTask(QRunnable):
                 else:
                     fmt = "{:04d}. "
 
-                # Re-formatear existentes si la cantidad total cambia de nivel (ej. <100 a >=100)
                 items_plan = []
                 for idx, ef in enumerate(existing_files, start=1):
                     cname = re.sub(r"^\d+(?:_|\.\s*)", "", ef.name)
@@ -296,11 +339,9 @@ class IntegrateFilesTask(QRunnable):
                         "final_name": final_name
                     })
 
-                # Procesar archivos seleccionados según el caso
                 selected_processed = []
                 if self.selected_case == "CASE_2_CLEAN":
                     sorted_selected = natsorted(self.selected_file_paths, key=lambda f: f.name.lower())
-                    # Sumar la numeración del último archivo
                     for idx, sf in enumerate(sorted_selected, start=1):
                         num = last_num + idx
                         cname = re.sub(r"^\d+(?:_|\.\s*)", "", sf.name)
@@ -308,7 +349,6 @@ class IntegrateFilesTask(QRunnable):
                         selected_processed.append((sf, final_name))
 
                 elif self.selected_case == "CASE_1_NO_NUMERATION":
-                    # Colocar al final con numeración continua
                     for idx, sf in enumerate(self.selected_file_paths, start=1):
                         num = last_num + idx
                         cname = sf.name
@@ -316,7 +356,6 @@ class IntegrateFilesTask(QRunnable):
                         selected_processed.append((sf, final_name))
 
                 else:  # CASE_3_STRANGE_OR_GAPS
-                    # Limpiar formato, ordenar alfabéticamente y añadir numeración al final
                     cleaned_files = []
                     for sf in self.selected_file_paths:
                         cname = clean_prefix(sf.name)
@@ -329,7 +368,6 @@ class IntegrateFilesTask(QRunnable):
                         final_name = fmt.format(num) + cname
                         selected_processed.append((sf, final_name))
 
-                # Mover seleccionados a la carpeta destino con nombres temporales
                 for sf, final_name in selected_processed:
                     temp_dest = self.target_folder / (f"{TEMP_PREFIX}import_{uuid.uuid4().hex}{sf.suffix}")
                     shutil.move(sf, temp_dest)
@@ -338,7 +376,6 @@ class IntegrateFilesTask(QRunnable):
                         "final_name": final_name
                     })
 
-                # Renombrar a nombres temporales de fase 1
                 temp_plan = []
                 for item in items_plan:
                     temp_name = TEMP_PREFIX + uuid.uuid4().hex + item["source_path"].suffix
@@ -347,18 +384,25 @@ class IntegrateFilesTask(QRunnable):
                     temp_plan.append({
                         "source_path": item["source_path"],
                         "temp_path": temp_path,
-                        "final_path": final_path
+                        "final_path": final_path,
+                        "final_name": item["final_name"]
                     })
+
+                total_steps = len(temp_plan) * 2
 
                 for idx, tp in enumerate(temp_plan, start=1):
                     tp["source_path"].rename(tp["temp_path"])
-                    self.signals.progress.emit(idx, len(temp_plan) * 2, f"Integrando (fase 1) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Preparando temporal {idx}/{len(temp_plan)}: {tp['final_name']}"
+                    main_msg = f"Etapa 1/2: Moviendo a ubicación temporal ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, idx, total_steps, main_msg)
 
                 for idx, tp in enumerate(temp_plan, start=1):
                     rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
-                    self.signals.progress.emit(len(temp_plan) + idx, len(temp_plan) * 2, f"Integrando (fase 2) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Integrando archivo {idx}/{len(temp_plan)}: {tp['final_name']}"
+                    main_idx = len(temp_plan) + idx
+                    main_msg = f"Etapa 2/2: Aplicando nombres finales ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, main_idx, total_steps, main_msg)
 
-            # Cargar carpeta actualizada al finalizar
             updated_files = [
                 f for f in self.target_folder.iterdir()
                 if f.is_file() and not f.name.startswith(TEMP_PREFIX)
@@ -368,7 +412,6 @@ class IntegrateFilesTask(QRunnable):
             self.signals.finished.emit(updated_files)
 
         except Exception as error:
-            # Limpiar archivos temporales creados antes de emitir la señal de error
             try:
                 for item in self.target_folder.iterdir():
                     if item.is_file() and item.name.startswith(TEMP_PREFIX):
@@ -400,7 +443,6 @@ class ResetNumerationTask(QRunnable):
                 self.signals.finished.emit([])
                 return
 
-            # Renombrar removiendo el prefijo numérico
             temp_plan = []
             for file in all_entries:
                 original_name = file.name
@@ -412,21 +454,25 @@ class ResetNumerationTask(QRunnable):
                     temp_plan.append({
                         "original_path": file,
                         "temp_path": temp_path,
-                        "final_path": final_path
+                        "final_path": final_path,
+                        "clean_name": clean_name
                     })
 
             if temp_plan:
-                # Renombrar a temp primero para evitar colisiones
                 total_steps = len(temp_plan) * 2
                 for idx, item in enumerate(temp_plan, start=1):
                     item["original_path"].rename(item["temp_path"])
-                    self.signals.progress.emit(idx, total_steps, f"Des-enumerando (fase 1) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Renombrando a temporal {idx}/{len(temp_plan)}: {item['clean_name']}"
+                    main_msg = f"Etapa 1/2: Moviendo a ubicación temporal ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, idx, total_steps, main_msg)
 
                 for idx, item in enumerate(temp_plan, start=1):
                     item["temp_path"].rename(item["final_path"])
-                    self.signals.progress.emit(len(temp_plan) + idx, total_steps, f"Des-enumerando (fase 2) {idx}/{len(temp_plan)}")
+                    sub_msg = f"Quitando numeración {idx}/{len(temp_plan)}: {item['clean_name']}"
+                    main_idx = len(temp_plan) + idx
+                    main_msg = f"Etapa 2/2: Removiendo prefijos numéricos ({idx}/{len(temp_plan)})"
+                    self.signals.progress.emit(idx, len(temp_plan), sub_msg, main_idx, total_steps, main_msg)
 
-            # Volver a leer la carpeta de archivos actualizada
             updated_files = [
                 f for f in self.folder_path.iterdir()
                 if f.is_file() and not f.name.startswith(TEMP_PREFIX)
@@ -436,4 +482,3 @@ class ResetNumerationTask(QRunnable):
             self.signals.finished.emit(updated_files)
         except Exception as error:
             self.signals.error.emit(f"Error durante la des-enumeración: {error}")
-

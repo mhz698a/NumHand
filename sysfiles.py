@@ -4,11 +4,12 @@ import re
 import time
 
 from pathlib import Path
-from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
-from PyQt6.QtCore import QThreadPool, Qt
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtCore import QThreadPool
 
 import syswall
 
+from sysprog import DualProgressDialog
 from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
 from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -33,20 +34,13 @@ class FileUtils:
         if not parent.folder or not parent.folder.exists():
             return
 
-        progress_dialog = QProgressDialog("Cargando carpeta...", "Cancelar", 0, 0, parent)
-        progress_dialog.setWindowTitle("Cargando carpeta")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Cargando carpeta", parent)
         progress_dialog.show()
 
         task = LoadFolderTask(parent.folder, self)
 
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
+        def on_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg):
+            progress_dialog.set_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg)
 
         def on_finished(files):
             progress_dialog.close()
@@ -83,20 +77,13 @@ class FileUtils:
         if self.check_files_locked(parent, file_paths):
             return
 
-        progress_dialog = QProgressDialog("Aplicando numeración...", "Cancelar", 0, 0, parent)
-        progress_dialog.setWindowTitle("Aplicando numeración")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Aplicando numeración", parent)
         progress_dialog.show()
 
         task = ApplyOrderTask(parent.folder, model.files, self)
 
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
+        def on_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg):
+            progress_dialog.set_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg)
 
         def on_finished(result):
             progress_dialog.close()
@@ -199,12 +186,7 @@ class FileUtils:
             if confirm != QMessageBox.StandardButton.Yes:
                 return
 
-        progress_dialog = QProgressDialog("Integrando archivos...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Integrar Archivos")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Integrar Archivos", parent)
         progress_dialog.show()
 
         task = IntegrateFilesTask(
@@ -215,11 +197,8 @@ class FileUtils:
             self
         )
 
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
+        def on_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg):
+            progress_dialog.set_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg)
 
         def on_finished(updated_files):
             progress_dialog.close()
@@ -242,7 +221,6 @@ class FileUtils:
             QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta seleccionada o la carpeta está vacía.")
             return
 
-        # Comprobar si los archivos ya están con formato de 3 o más dígitos (000. )
         has_2digit_or_1digit = False
         for file in model.files:
             match = re.match(r"^(\d+)(?:_|\.\s*)", file.path.name)
@@ -275,21 +253,13 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Formato de centenas")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Formato de centenas", parent)
         progress_dialog.show()
 
         task = FormatHundredsTask(parent.folder, model.files, self)
 
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
+        def on_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg):
+            progress_dialog.set_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg)
 
         def on_finished(result):
             progress_dialog.close()
@@ -329,21 +299,13 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Des-enumerando carpeta...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Des-enumerando carpeta")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Des-enumerando carpeta", parent)
         progress_dialog.show()
 
         task = ResetNumerationTask(parent.folder, self)
 
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
+        def on_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg):
+            progress_dialog.set_progress(sub_curr, sub_tot, sub_msg, main_curr, main_tot, main_msg)
 
         def on_finished(updated_files):
             progress_dialog.close()
@@ -362,13 +324,7 @@ class FileUtils:
     def rename_single_file(self, parent, model, row, new_base_name):
         """
         Renombra un archivo individual sin perder su extensión.
-        
-        Cuando el usuario renombra un archivo con double-click:
-        - Extrae la extensión real del archivo en disco
-        - Preserva el prefijo numérico si ya existe
-        - Actualiza clean_name para incluir la extensión (importante para apply_order)
         """
-        
         if row < 0 or row >= len(model.files):
             return False
 
@@ -382,7 +338,6 @@ class FileUtils:
         old_path = file_entry.path
         full_name = old_path.name
         
-        # Extraer extensión usando regex más robusto
         ext_match = re.search(r"(\.[a-zA-Z0-9]{1,5})$", full_name)
         if ext_match:
             suffix = ext_match.group(1)
@@ -391,21 +346,17 @@ class FileUtils:
             suffix = ""
             name_body = full_name
         
-        # Extraer prefijo numérico existente del nombre en disco
         old_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", name_body)
         old_prefix = old_prefix_match.group(1) if old_prefix_match else ""
         
-        # Verificar si el usuario ingresó un prefijo numérico
         new_prefix_match = re.match(r"^(\d+(?:_|\.\s*))", new_base_name)
         
         if new_prefix_match:
-            # Usuario incluyó prefijo: usarlo tal cual
             user_prefix = new_prefix_match.group(1)
             clean_base = new_base_name[len(user_prefix):].strip()
             new_filename = f"{user_prefix}{clean_base}{suffix}"
             clean_base_for_model = clean_base
         else:
-            # Usuario no incluyó prefijo: mantener el existente
             new_filename = f"{old_prefix}{new_base_name}{suffix}"
             clean_base_for_model = new_base_name
 
@@ -424,7 +375,6 @@ class FileUtils:
             file_entry.path = new_path
             file_entry.original_path = new_path
             file_entry.original_name = new_filename
-            # IMPORTANTE: clean_name debe incluir la extensión para que apply_order funcione correctamente
             file_entry.clean_name = f"{clean_base_for_model}{suffix}"
             
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
@@ -525,18 +475,15 @@ class FileUtils:
                 "sha256": sha256_hash
             })
 
-        # Para los archivos que no se encontraron por ruta directa, intentar búsqueda por hash SHA-256
         claimed_paths = {item["current_path"].resolve() for item in recovery_plan if item["current_path"] is not None}
         missing_items = [item for item in recovery_plan if item["current_path"] is None]
 
         if missing_items:
-            # Escanear archivos no reclamados de la carpeta
             folder_files = [
                 f for f in folder_path.iterdir()
                 if f.is_file() and f.resolve() not in claimed_paths and not f.name.startswith(".__file_manager")
             ]
 
-            # Mapear hashes de archivos existentes en carpeta
             file_hashes = {}
             for file_p in folder_files:
                 h = compute_file_hash(file_p)
@@ -599,8 +546,6 @@ class FileUtils:
             return True
 
         except Exception as error:
-            # Rollback para que un reintento posterior no deje archivos
-            # ocultos en los temporales de recuperación.
             for item in reversed(recovery_temp_files):
                 recovery_path = item["recovery_path"]
                 original_path = item["original_path"]
@@ -618,7 +563,7 @@ class FileUtils:
             print("Error durante la recuperación:", error)
             return False
 
-    def create_backup_sync(self, temp_files, folder_path):
+    def create_backup_sync(self, temp_files, folder_path, progress_callback=None):
         backup_path = folder_path / BACKUP_FILENAME
 
         backup = {
@@ -628,7 +573,8 @@ class FileUtils:
             "files": []
         }
 
-        for item in temp_files:
+        total_files = len(temp_files)
+        for idx, item in enumerate(temp_files, start=1):
             file = item["file"]
             temp_path = item["temp_path"]
             final_path = item["final_path"]
@@ -644,6 +590,9 @@ class FileUtils:
                 "final_path": str(final_path),
                 "sha256": file_hash
             })
+
+            if progress_callback:
+                progress_callback(idx, total_files, file.original_name)
 
         temp_backup = folder_path / (BACKUP_FILENAME + ".tmp")
         with temp_backup.open("w", encoding="utf-8") as backup_file:
