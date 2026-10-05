@@ -107,9 +107,9 @@ class ApplyOrderTask(QRunnable):
                 final_path = item["final_path"]
                 rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
                 item["file"].path = final_path
-                item["file"].original_path = final_path
-                item["file"].original_name = final_path.name
-                # clean_name debe incluir la extensión, sin el prefijo numérico inicial
+                # El estado confirmado (original_path/original_name/original_row)
+                # se actualiza en el hilo de interfaz solo después de finalizar
+                # correctamente toda la operación.
                 item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
                 self.signals.progress.emit(total_files + idx, total_files * 2, f"Paso 2/2: aplicando numeración {idx}/{total_files}")
 
