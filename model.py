@@ -76,6 +76,26 @@ class FileModel(QAbstractListModel):
         ]
         self.endResetModel()
 
+    def set_all_checked(self, checked):
+        """Marca o desmarca todos los archivos."""
+        for row, file in enumerate(self.files):
+            if file.is_checked == checked:
+                continue
+            file.is_checked = checked
+            index = self.index(row, 0)
+            self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+
+    def invert_selection(self):
+        """Invierte el estado del checkbox de todos los archivos."""
+        for row, file in enumerate(self.files):
+            file.is_checked = not file.is_checked
+            index = self.index(row, 0)
+            self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+
+    def checked_files(self):
+        """Devuelve las entradas de archivo actualmente marcadas."""
+        return [file for file in self.files if file.is_checked]
+
     def move_file(self, source_row, target_row):
         if source_row == target_row:
             return

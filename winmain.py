@@ -4,7 +4,7 @@ import subprocess
 import platform
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget,
+    QApplication, QMainWindow, QWidget,
     QVBoxLayout, QMessageBox
 )
 from PyQt6.QtGui import QAction
@@ -92,6 +92,30 @@ class WMain(QMainWindow):
 
         # ----------------------------------------
 
+        menu_editar = barra_menu.addMenu("&Edit")
+
+        ac_select_all = QAction("Select All", self)
+        ac_select_all.triggered.connect(
+            lambda: self.model.set_all_checked(True)
+        )
+        menu_editar.addAction(ac_select_all)
+
+        ac_unselect_all = QAction("Unselect All", self)
+        ac_unselect_all.triggered.connect(
+            lambda: self.model.set_all_checked(False)
+        )
+        menu_editar.addAction(ac_unselect_all)
+
+        ac_invert_selection = QAction("Invert Selection", self)
+        ac_invert_selection.triggered.connect(
+            self.model.invert_selection
+        )
+        menu_editar.addAction(ac_invert_selection)
+
+        menu_editar.addSeparator()
+
+        # ----------------------------------------
+
         menu_utilidades = barra_menu.addMenu("&Utilidades")
 
         ac_desnum_folder = QAction("Reset Numeration Folder", self)
@@ -122,6 +146,28 @@ class WMain(QMainWindow):
         )
         menu_utilidades.addAction(ac_integrate_files)
 
+        menu_utilidades.addSeparator()
+
+        ac_copy_paths = QAction("Copiar rutas de archivos seleccionados", self)
+        ac_copy_paths.triggered.connect(self.copy_selected_paths)
+        menu_utilidades.addAction(ac_copy_paths)
+
+        ac_copy_names = QAction("Copiar nombres de archivos seleccionados", self)
+        ac_copy_names.triggered.connect(self.copy_selected_names)
+        menu_utilidades.addAction(ac_copy_names)
+
+
+    def copy_selected_paths(self):
+        selected_files = self.model.checked_files()
+        QApplication.clipboard().setText(
+            "\n".join(str(file.path) for file in selected_files)
+        )
+
+    def copy_selected_names(self):
+        selected_files = self.model.checked_files()
+        QApplication.clipboard().setText(
+            "\n".join(file.path.name for file in selected_files)
+        )
 
     def openFolderExplorer(self):
         if self.folder and self.folder.exists():
