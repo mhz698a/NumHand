@@ -21,6 +21,23 @@ class FileDelegate(QStyledItemDelegate):
         painter.save()
         rect = option.rect
 
+        file_entry = None
+        if self.main_window and hasattr(self.main_window, "model"):
+            row = index.row()
+            if 0 <= row < len(self.main_window.model.files):
+                file_entry = self.main_window.model.files[row]
+
+        if file_entry is not None:
+            name_changed = file_entry.clean_name != file_entry.original_clean_name
+            position_changed = file_entry.original_row != index.row()
+
+            if name_changed and position_changed:
+                painter.fillRect(rect, QColor("#f8c8dc"))
+            elif name_changed:
+                painter.fillRect(rect, QColor("#ffe0b2"))
+            elif position_changed:
+                painter.fillRect(rect, QColor("#fff3b0"))
+
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, option.palette.highlight())
 
@@ -139,7 +156,6 @@ class FileDelegate(QStyledItemDelegate):
         if not new_base_name:
             return
 
-        if self.main_window and hasattr(self.main_window, 'file_utils'):
-            self.main_window.file_utils.rename_single_file(
-                self.main_window, model, index.row(), new_base_name
-            )
+        # El renombrado es transaccional: solo cambia el estado del modelo.
+        # El archivo físico se modifica al pulsar "Apply changes".
+        model.set_pending_name(index.row(), new_base_name)
