@@ -33,11 +33,11 @@ class FileDelegate(QStyledItemDelegate):
             position_changed = file_entry.original_row != index.row()
 
             if name_changed and position_changed:
-                painter.fillRect(rect, QColor("#f8c8dc"))
+                painter.fillRect(rect, QColor("#582a3a"))  # Rosa/Magenta oscuro
             elif name_changed:
-                painter.fillRect(rect, QColor("#ffe0b2"))
+                painter.fillRect(rect, QColor("#4d3219"))  # Naranja/Terracota oscuro
             elif position_changed:
-                painter.fillRect(rect, QColor("#fff3b0"))
+                painter.fillRect(rect, QColor("#423d18"))  # Amarillo/Oliva oscuro
 
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, option.palette.highlight())
