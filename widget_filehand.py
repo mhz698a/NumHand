@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate, QStyle, QLineEdit, QAbstractItemView, QStyleOptionButton
 )
 from PyQt6.QtCore import Qt, QRect, QEvent
+from PyQt6.QtGui import QColor
 from pathlib import Path
 
 
@@ -20,6 +21,23 @@ class FileDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         painter.save()
         rect = option.rect
+
+        file_entry = None
+        if self.main_window and hasattr(self.main_window, "model"):
+            row = index.row()
+            if 0 <= row < len(self.main_window.model.files):
+                file_entry = self.main_window.model.files[row]
+
+        if file_entry is not None:
+            name_changed = file_entry.clean_name != file_entry.original_clean_name
+            position_changed = file_entry.original_row != index.row()
+
+            if name_changed and position_changed:
+                painter.fillRect(rect, QColor("#582a3a"))  # Rosa/Magenta oscuro
+            elif name_changed:
+                painter.fillRect(rect, QColor("#4d3219"))  # Naranja/Terracota oscuro
+            elif position_changed:
+                painter.fillRect(rect, QColor("#423d18"))  # Amarillo/Oliva oscuro
 
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, option.palette.highlight())
@@ -139,7 +157,6 @@ class FileDelegate(QStyledItemDelegate):
         if not new_base_name:
             return
 
-        if self.main_window and hasattr(self.main_window, 'file_utils'):
-            self.main_window.file_utils.rename_single_file(
-                self.main_window, model, index.row(), new_base_name
-            )
+        # El renombrado es transaccional: solo cambia el estado del modelo.
+        # El archivo físico se modifica al pulsar "Apply changes".
+        model.set_pending_name(index.row(), new_base_name)

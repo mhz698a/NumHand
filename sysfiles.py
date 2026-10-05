@@ -87,6 +87,17 @@ class FileUtils:
 
         def on_finished(result):
             progress_dialog.close()
+
+            # La operación física terminó correctamente. A partir de este
+            # momento los nombres y posiciones actuales pasan a ser la base
+            # confirmada y los tonos pendientes desaparecen.
+            for row, file in enumerate(model.files):
+                file.original_path = file.path
+                file.original_name = file.path.name
+                file.original_clean_name = file.clean_name
+                file.original_row = row
+                file.pending_name = None
+
             model.layoutChanged.emit()
 
         def on_error(err_msg):
