@@ -78,7 +78,6 @@ class FileModel(QAbstractListModel):
 
     def set_all_checked(self, checked):
         """Marca o desmarca todos los archivos."""
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         for row, file in enumerate(self.files):
             if file.is_checked == checked:
                 continue
