@@ -146,6 +146,12 @@ class WMain(QMainWindow):
         )
         menu_utilidades.addAction(ac_integrate_files)
 
+        ac_check_foobar2000 = QAction("Check foobar2000 playing file", self)
+        ac_check_foobar2000.triggered.connect(
+            self.check_foobar2000_playing_file
+        )
+        menu_utilidades.addAction(ac_check_foobar2000)
+
         menu_utilidades.addSeparator()
 
         ac_copy_paths = QAction("Copiar rutas de archivos seleccionados", self)
@@ -156,6 +162,34 @@ class WMain(QMainWindow):
         ac_copy_names.triggered.connect(self.copy_selected_names)
         menu_utilidades.addAction(ac_copy_names)
 
+
+    def check_foobar2000_playing_file(self):
+        from wutils_foobar2000 import is_file_from_list_playing
+
+        try:
+            is_playing = is_file_from_list_playing(
+                file.path for file in self.model.files
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "foobar2000",
+                f"Could not connect to foobar2000: {exc}"
+            )
+            return
+
+        if is_playing:
+            QMessageBox.information(
+                self,
+                "foobar2000",
+                "foobar2000 is playing a file from the loaded folder."
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "foobar2000",
+                "foobar2000 is not playing a file from the loaded folder."
+            )
 
     def copy_selected_paths(self):
         selected_files = self.model.checked_files()
