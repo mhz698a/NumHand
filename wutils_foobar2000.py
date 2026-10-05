@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ntpath
 import os
 from os import PathLike
 from typing import Iterable
@@ -16,8 +17,8 @@ def is_file_from_list_playing(
     if current_path is None:
         return False
 
-    current_normalized = os.path.normcase(os.path.normpath(current_path))
+    current_normalized = ntpath.normcase(ntpath.normpath(current_path))
     return any(
-        os.path.normcase(os.path.normpath(os.fspath(file))) == current_normalized
+        ntpath.normcase(ntpath.normpath(os.fspath(file))) == current_normalized
         for file in files
     )
