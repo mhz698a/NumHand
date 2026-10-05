@@ -160,10 +160,9 @@ class FileModel(QAbstractListModel):
 
         self.endMoveRows()
 
-        for row in {source_row, target_row}:
-            if 0 <= row < len(self.files):
-                self.dataChanged.emit(
-                    self.index(row, 0),
-                    self.index(row, 0),
-                    []
-                )
+        if self.files:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self.files) - 1, 0),
+                []
+            )
