@@ -58,28 +58,6 @@ class WMain(QMainWindow):
     def build_menubar(self):
         barra_menu = self.menuBar()
 
-        menu_editar = barra_menu.addMenu("&Edit")
-
-        ac_select_all = QAction("Select All", self)
-        ac_select_all.triggered.connect(
-            lambda: self.model.set_all_checked(True)
-        )
-        menu_editar.addAction(ac_select_all)
-
-        ac_unselect_all = QAction("Unselect All", self)
-        ac_unselect_all.triggered.connect(
-            lambda: self.model.set_all_checked(False)
-        )
-        menu_editar.addAction(ac_unselect_all)
-
-        ac_invert_selection = QAction("Invert Selection", self)
-        ac_invert_selection.triggered.connect(
-            self.model.invert_selection
-        )
-        menu_editar.addAction(ac_invert_selection)
-
-        menu_editar.addSeparator()
-
         menu_archivo = barra_menu.addMenu("&File")
 
         ac_abrir_folder = QAction("&Select Folder", self)
@@ -111,6 +89,30 @@ class WMain(QMainWindow):
         accion_salir.setShortcut("Alt+F4")
         accion_salir.triggered.connect(self.close)
         menu_archivo.addAction(accion_salir)
+
+        # ----------------------------------------
+
+        menu_editar = barra_menu.addMenu("&Edit")
+
+        ac_select_all = QAction("Select All", self)
+        ac_select_all.triggered.connect(
+            lambda: self.model.set_all_checked(True)
+        )
+        menu_editar.addAction(ac_select_all)
+
+        ac_unselect_all = QAction("Unselect All", self)
+        ac_unselect_all.triggered.connect(
+            lambda: self.model.set_all_checked(False)
+        )
+        menu_editar.addAction(ac_unselect_all)
+
+        ac_invert_selection = QAction("Invert Selection", self)
+        ac_invert_selection.triggered.connect(
+            self.model.invert_selection
+        )
+        menu_editar.addAction(ac_invert_selection)
+
+        menu_editar.addSeparator()
 
         # ----------------------------------------
 
