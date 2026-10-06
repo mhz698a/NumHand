@@ -3,8 +3,18 @@ import shutil
 import uuid
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtCore import QObject, QRunnable, QSettings, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 import syswall
 from sysprog import DualProgressDialog
@@ -18,6 +28,125 @@ class MoveSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
+
+
+
+
+def get_settings():
+    return QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+
+
+def get_trash_folder():
+    value = get_settings().value(TRASH_PATH_KEY, "", type=str)
+    if not value:
+        return None
+    path = Path(value).expanduser().resolve()
+    return path if path.is_dir() else None
+
+
+class TrashFolderDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Establecer ruta de papelera")
+        self.resize(620, 130)
+
+        self.path_edit = QLineEdit(self)
+        self.path_edit.setReadOnly(True)
+        current = get_settings().value(TRASH_PATH_KEY, "", type=str)
+        if current:
+            self.path_edit.setText(str(Path(current).expanduser().resolve()))
+
+        select_button = QPushButton("Select Other Folder", self)
+        select_button.clicked.connect(self.select_other_folder)
+
+        open_button = QPushButton("Open Folder", self)
+        open_button.clicked.connect(self.open_folder)
+
+        accept_button = QPushButton("Accept", self)
+        accept_button.clicked.connect(self.accept)
+
+        path_layout = QHBoxLayout()
+        path_layout.addWidget(QLabel("Ruta:"))
+        path_layout.addWidget(self.path_edit)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(select_button)
+        button_layout.addWidget(open_button)
+        button_layout.addStretch()
+        button_layout.addWidget(accept_button)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(path_layout)
+        layout.addLayout(button_layout)
+
+    def select_other_folder(self):
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Select Other Folder",
+            self.path_edit.text() or str(Path.home()),
+        )
+        if selected:
+            self.path_edit.setText(str(Path(selected).resolve()))
+
+    def open_folder(self):
+        folder = self.path_edit.text().strip()
+        if not folder or not Path(folder).is_dir():
+            QMessageBox.warning(
+                self,
+                "Ruta no válida",
+                "Selecciona primero una carpeta válida.",
+            )
+            return
+
+        path = Path(folder)
+        try:
+            import os
+            import platform
+            import subprocess
+
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "No se pudo abrir la carpeta",
+                str(error),
+            )
+
+    def accept(self):
+        folder = self.path_edit.text().strip()
+        if not folder or not Path(folder).is_dir():
+            QMessageBox.warning(
+                self,
+                "Ruta no válida",
+                "Selecciona una carpeta válida antes de aceptar.",
+            )
+            return
+
+        settings = get_settings()
+        settings.setValue(TRASH_PATH_KEY, str(Path(folder).resolve()))
+        settings.sync()
+        super().accept()
+
+
+def set_trash_folder(parent):
+    dialog = TrashFolderDialog(parent)
+    dialog.exec()
+
+
+def build_trash_move_plan(selected_paths, remove_selected_numbering):
+    return build_direct_move_plan(
+        selected_paths,
+        remove_selected_numbering,
+    )
+
+
+class MoveSelectedToTrashTask(MoveSelectedTask):
+    pass
 
 
 def remove_standard_numbering(filename):
@@ -448,4 +577,139 @@ def move_selected_files(parent, model):
     task.signals.finished.connect(on_finished)
     task.signals.error.connect(on_error)
 
+    QThreadPool.globalInstance().start(task)
+
+
+def move_selected_to_trash(parent, model):
+    selected_files = model.checked_files()
+    if not selected_files:
+        return
+
+    source_folder = getattr(parent, "folder", None)
+    if not source_folder or not Path(source_folder).is_dir():
+        QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta cargada.")
+        return
+
+    trash_folder = get_trash_folder()
+    if trash_folder is None:
+        QMessageBox.warning(
+            parent,
+            "Papelera no configurada",
+            "Establece primero una ruta válida mediante "
+            '"Establecer ruta de papelera".',
+        )
+        return
+
+    source_folder = Path(source_folder).resolve()
+    trash_folder = trash_folder.resolve()
+
+    if source_folder == trash_folder:
+        QMessageBox.warning(
+            parent,
+            "Ruta no válida",
+            "La papelera no puede ser la misma carpeta que la carpeta cargada.",
+        )
+        return
+
+    confirmation = QMessageBox.question(
+        parent,
+        "Mover a papelera",
+        "¿Deseas continuar con el movimiento de los archivos seleccionados a la papelera?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    if confirmation != QMessageBox.StandardButton.Yes:
+        return
+
+    numbering_answer = QMessageBox.question(
+        parent,
+        "Quitar numeración",
+        "¿Deseas quitar de los archivos seleccionados las numeraciones iniciales "
+        '"00. " o "000. " antes de moverlos a la papelera?',
+        QMessageBox.StandardButton.Yes
+        | QMessageBox.StandardButton.No
+        | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Yes,
+    )
+    if numbering_answer == QMessageBox.StandardButton.Cancel:
+        return
+
+    remove_selected_numbering = (
+        numbering_answer == QMessageBox.StandardButton.Yes
+    )
+    selected_paths = [Path(file.path) for file in selected_files]
+
+    trash_existing = [
+        path
+        for path in trash_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    trash_plan = build_trash_move_plan(
+        selected_paths,
+        remove_selected_numbering,
+    )
+    existing_names = {path.name.lower() for path in trash_existing}
+    planned_names = {final_name.lower() for _, final_name in trash_plan}
+
+    if len(planned_names) != len(trash_plan):
+        QMessageBox.critical(
+            parent,
+            "Nombres duplicados",
+            "Los archivos seleccionados producirían nombres duplicados en la papelera.",
+        )
+        return
+
+    conflicts = sorted(existing_names & planned_names)
+    if conflicts:
+        QMessageBox.warning(
+            parent,
+            "Archivo ya existente",
+            "Ya existen en la papelera los siguientes archivos:\n\n"
+            + "\n".join(conflicts),
+        )
+        return
+
+    locking_apps = syswall.get_locking_processes(selected_paths)
+    if locking_apps:
+        apps_str = "\n• ".join(locking_apps)
+        QMessageBox.warning(
+            parent,
+            "Archivos en uso",
+            "Los siguientes programas están bloqueando archivos que se intentan mover:"
+            f"\n\n• {apps_str}\n\nCierra las aplicaciones manualmente antes de proceder.",
+        )
+        return
+
+    progress_dialog = DualProgressDialog("Mover archivos a papelera", parent)
+    progress_dialog.show()
+
+    task = MoveSelectedToTrashTask(
+        source_folder,
+        trash_folder,
+        selected_paths,
+        remove_selected_numbering,
+        False,
+    )
+
+    def on_finished():
+        progress_dialog.close()
+        model.set_all_checked(False)
+        parent.file_utils.load_folder(parent, model)
+        QMessageBox.information(
+            parent,
+            "Éxito",
+            "Los archivos seleccionados fueron movidos a la papelera "
+            "y la carpeta de origen fue reorganizada.",
+        )
+
+    def on_error(message):
+        progress_dialog.close()
+        QMessageBox.critical(parent, "Error", message)
+        parent.file_utils.load_folder(parent, model)
+
+    task.signals.progress.connect(progress_dialog.update_progress)
+    task.signals.finished.connect(on_finished)
+    task.signals.error.connect(on_error)
     QThreadPool.globalInstance().start(task)
