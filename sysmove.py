@@ -46,7 +46,8 @@ def build_destination_plan(existing_paths, selected_paths, remove_selected_numbe
 
     items = []
     for path in existing:
-        items.append((Path(path), remove_standard_numbering(path.name)))
+        clean_filename = remove_standard_numbering(path.name)
+        items.append((Path(path), clean_filename))
 
     for path in selected:
         path = Path(path)
@@ -55,7 +56,7 @@ def build_destination_plan(existing_paths, selected_paths, remove_selected_numbe
 
     fmt = numbering_format(len(items))
     return [
-        (source, fmt.format(index) + clean_name)
+        (source, fmt.format(index) + clean_filename)
         for index, (source, clean_name) in enumerate(items, start=1)
     ]
 
@@ -371,19 +372,6 @@ def move_selected_files(parent, model):
         and path.name != BACKUP_FILENAME
     ]
 
-    locking_paths = selected_paths + existing_paths
-    locking_apps = syswall.get_locking_processes(locking_paths)
-    if locking_apps:
-        apps_str = "\n• ".join(locking_apps)
-        QMessageBox.warning(
-            parent,
-            "Archivos en uso",
-            "Los siguientes programas están bloqueando archivos que se intentan modificar:"
-            f"\n\n• {apps_str}"
-            "\n\nCierra las aplicaciones manualmente antes de proceder.",
-        )
-        return
-
     answer = QMessageBox.question(
         parent,
         "Quitar numeración",
@@ -410,6 +398,19 @@ def move_selected_files(parent, model):
     reorganize_destination = (
         reorganize_answer == QMessageBox.StandardButton.Yes
     )
+
+    locking_paths = selected_paths + (existing_paths if reorganize_destination else [])
+    locking_apps = syswall.get_locking_processes(locking_paths)
+    if locking_apps:
+        apps_str = "\n• ".join(locking_apps)
+        QMessageBox.warning(
+            parent,
+            "Archivos en uso",
+            "Los siguientes programas están bloqueando archivos que se intentan modificar:"
+            f"\n\n• {apps_str}"
+            "\n\nCierra las aplicaciones manualmente antes de proceder.",
+        )
+        return
 
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
     progress_dialog.show()
