@@ -13,6 +13,8 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from sysfiles import FileUtils
+from sysutils import clean_prefix
+from sysmove import move_selected_files
 from wutils_foobar2000 import check_foobar2000_playing_file
 
 class WMain(QMainWindow):
@@ -66,6 +68,13 @@ class WMain(QMainWindow):
             lambda: self.file_utils.select_folder(self, self.model)
         )
         menu_archivo.addAction(ac_abrir_folder)
+
+        ac_refresh_folder = QAction("&Refresh Loaded Folder", self)
+        ac_refresh_folder.setShortcut("F5")
+        ac_refresh_folder.triggered.connect(
+            lambda: self.file_utils.load_folder(self, self.model)
+        )
+        menu_archivo.addAction(ac_refresh_folder)
 
         ac_opened_folder = QAction("&Open Selected Folder", self)
         ac_opened_folder.setShortcut("Ctrl+P")
@@ -153,6 +162,15 @@ class WMain(QMainWindow):
         menu_utilidades.addAction(ac_check_foobar2000)
 
         menu_utilidades.addSeparator()
+
+        ac_move_selected = QAction(
+            "Mover a otra carperta los archivos seleccionados",
+            self
+        )
+        ac_move_selected.triggered.connect(
+            lambda: move_selected_files(self, self.model)
+        )
+        menu_utilidades.addAction(ac_move_selected)
 
         ac_copy_paths = QAction("Copiar rutas de archivos seleccionados", self)
         ac_copy_paths.triggered.connect(self.copy_selected_paths)
