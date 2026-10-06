@@ -6,7 +6,6 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QRunnable, QSettings, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -22,6 +21,9 @@ from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 
 NUMBERING_RE = re.compile(r"^\d{2,3}\.\s")
+TRASH_PATH_KEY = "trash/folder"
+SETTINGS_ORGANIZATION = "EtudeTools"
+SETTINGS_APPLICATION = "NumHand"
 
 
 class MoveSignals(QObject):
@@ -143,10 +145,6 @@ def build_trash_move_plan(selected_paths, remove_selected_numbering):
         selected_paths,
         remove_selected_numbering,
     )
-
-
-class MoveSelectedToTrashTask(MoveSelectedTask):
-    pass
 
 
 def remove_standard_numbering(filename):
@@ -685,7 +683,7 @@ def move_selected_to_trash(parent, model):
     progress_dialog = DualProgressDialog("Mover archivos a papelera", parent)
     progress_dialog.show()
 
-    task = MoveSelectedToTrashTask(
+    task = MoveSelectedTask(
         source_folder,
         trash_folder,
         selected_paths,
