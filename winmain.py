@@ -163,7 +163,7 @@ class WMain(QMainWindow):
         menu_utilidades.addSeparator()
 
         ac_move_selected = QAction(
-            "Mover a otra carperta los archivos seleccionados",
+            "Mover a otra carpeta los archivos seleccionados",
             self
         )
         ac_move_selected.triggered.connect(
