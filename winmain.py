@@ -13,7 +13,7 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from sysfiles import FileUtils
-from sysmove import move_selected_files
+from sysmove import move_selected_files, move_selected_to_trash, set_trash_folder
 from wutils_foobar2000 import check_foobar2000_playing_file
 
 class WMain(QMainWindow):
@@ -170,6 +170,18 @@ class WMain(QMainWindow):
             lambda: move_selected_files(self, self.model)
         )
         menu_utilidades.addAction(ac_move_selected)
+
+        ac_set_trash = QAction("Establecer ruta de papelera", self)
+        ac_set_trash.triggered.connect(lambda: set_trash_folder(self))
+        menu_utilidades.addAction(ac_set_trash)
+
+        ac_move_trash = QAction("Mover a papelera los seleccionados", self)
+        ac_move_trash.triggered.connect(
+            lambda: move_selected_to_trash(self, self.model)
+        )
+        menu_utilidades.addAction(ac_move_trash)
+
+        menu_utilidades.addSeparator()
 
         ac_copy_paths = QAction("Copiar rutas de archivos seleccionados", self)
         ac_copy_paths.triggered.connect(self.copy_selected_paths)
