@@ -56,7 +56,7 @@ def build_destination_plan(existing_paths, selected_paths, remove_selected_numbe
 
     fmt = numbering_format(len(items))
     return [
-        (source, fmt.format(index) + clean_filename)
+        (source, fmt.format(index) + clean_name)
         for index, (source, clean_name) in enumerate(items, start=1)
     ]
 
