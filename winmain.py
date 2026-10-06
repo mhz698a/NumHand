@@ -13,7 +13,12 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from sysfiles import FileUtils
-from sysmove import move_selected_files, move_selected_to_trash, set_trash_folder
+from sysmove import (
+    check_folder_numbering,
+    move_selected_files,
+    move_selected_to_trash,
+    set_trash_folder,
+)
 from wutils_foobar2000 import check_foobar2000_playing_file
 
 class WMain(QMainWindow):
@@ -170,6 +175,15 @@ class WMain(QMainWindow):
             lambda: move_selected_files(self, self.model)
         )
         menu_utilidades.addAction(ac_move_selected)
+
+        ac_check_numbering = QAction(
+            "Comprobar Numeración de esta carpeta",
+            self,
+        )
+        ac_check_numbering.triggered.connect(
+            lambda: check_folder_numbering(self, self.model)
+        )
+        menu_utilidades.addAction(ac_check_numbering)
 
         ac_set_trash = QAction("Establecer ruta de papelera", self)
         ac_set_trash.triggered.connect(lambda: set_trash_folder(self))
