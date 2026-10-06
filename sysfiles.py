@@ -4,11 +4,12 @@ import re
 import time
 
 from pathlib import Path
-from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import QThreadPool, Qt
 
 import syswall
 
+from sysprog import DualProgressDialog
 from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
 from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -33,20 +34,10 @@ class FileUtils:
         if not parent.folder or not parent.folder.exists():
             return
 
-        progress_dialog = QProgressDialog("Cargando carpeta...", "Cancelar", 0, 0, parent)
-        progress_dialog.setWindowTitle("Cargando carpeta")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Cargando carpeta", parent)
         progress_dialog.show()
 
         task = LoadFolderTask(parent.folder, self)
-
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
 
         def on_finished(files):
             progress_dialog.close()
@@ -56,11 +47,10 @@ class FileUtils:
             progress_dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
-        task.signals.progress.connect(on_progress)
+        task.signals.progress.connect(progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
-        progress_dialog.canceled.connect(lambda: None)
         self.thread_pool.start(task)
 
     def check_files_locked(self, parent, file_paths):
@@ -83,20 +73,10 @@ class FileUtils:
         if self.check_files_locked(parent, file_paths):
             return
 
-        progress_dialog = QProgressDialog("Aplicando numeración...", "Cancelar", 0, 0, parent)
-        progress_dialog.setWindowTitle("Aplicando numeración")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Aplicando numeración", parent)
         progress_dialog.show()
 
         task = ApplyOrderTask(parent.folder, model.files, self)
-
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
 
         def on_finished(result):
             progress_dialog.close()
@@ -118,7 +98,7 @@ class FileUtils:
             QMessageBox.critical(parent, "Error", err_msg)
             model.layoutChanged.emit()
 
-        task.signals.progress.connect(on_progress)
+        task.signals.progress.connect(progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
@@ -210,12 +190,7 @@ class FileUtils:
             if confirm != QMessageBox.StandardButton.Yes:
                 return
 
-        progress_dialog = QProgressDialog("Integrando archivos...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Integrar Archivos")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Integrar Archivos", parent)
         progress_dialog.show()
 
         task = IntegrateFilesTask(
@@ -225,12 +200,6 @@ class FileUtils:
             selected_case,
             self
         )
-
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
 
         def on_finished(updated_files):
             progress_dialog.close()
@@ -242,7 +211,7 @@ class FileUtils:
             QMessageBox.critical(parent, "Error", err_msg)
             self.load_folder(parent, model)
 
-        task.signals.progress.connect(on_progress)
+        task.signals.progress.connect(progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
@@ -286,21 +255,10 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Cambiando a formato de centenas...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Formato de centenas")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Formato de centenas", parent)
         progress_dialog.show()
 
         task = FormatHundredsTask(parent.folder, model.files, self)
-
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
 
         def on_finished(result):
             progress_dialog.close()
@@ -311,7 +269,7 @@ class FileUtils:
             QMessageBox.critical(parent, "Error", err_msg)
             model.layoutChanged.emit()
 
-        task.signals.progress.connect(on_progress)
+        task.signals.progress.connect(progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
@@ -340,21 +298,10 @@ class FileUtils:
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        progress_dialog = QProgressDialog("Des-enumerando carpeta...", None, 0, 0, parent)
-        progress_dialog.setCancelButton(None)
-        progress_dialog.setWindowTitle("Des-enumerando carpeta")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
+        progress_dialog = DualProgressDialog("Des-enumerando carpeta", parent)
         progress_dialog.show()
 
         task = ResetNumerationTask(parent.folder, self)
-
-        def on_progress(current, total, message):
-            progress_dialog.setLabelText(message)
-            if total > 0:
-                progress_dialog.setMaximum(total)
-                progress_dialog.setValue(current)
 
         def on_finished(updated_files):
             progress_dialog.close()
@@ -364,7 +311,7 @@ class FileUtils:
             progress_dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
-        task.signals.progress.connect(on_progress)
+        task.signals.progress.connect(progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
@@ -629,7 +576,7 @@ class FileUtils:
             print("Error durante la recuperación:", error)
             return False
 
-    def create_backup_sync(self, temp_files, folder_path):
+    def create_backup_sync(self, temp_files, folder_path, progress_callback=None):
         backup_path = folder_path / BACKUP_FILENAME
 
         backup = {
@@ -639,12 +586,16 @@ class FileUtils:
             "files": []
         }
 
-        for item in temp_files:
+        total = len(temp_files)
+        for idx, item in enumerate(temp_files, start=1):
             file = item["file"]
             temp_path = item["temp_path"]
             final_path = item["final_path"]
 
             file_hash = compute_file_hash(file.path) if file.path.exists() else None
+
+            if progress_callback:
+                progress_callback(idx, total, file.original_name)
 
             backup["files"].append({
                 "original_name": file.original_name,
