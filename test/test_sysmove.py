@@ -6,7 +6,7 @@ from sysmove import (
     build_direct_move_plan,
     build_source_plan,
     numbering_format,
-    remove_standard_numbering,
+    remove_standard_numbering,\n    build_trash_move_plan,
 )
 
 
@@ -82,6 +82,26 @@ class SysMoveTests(unittest.TestCase):
                 "selected-seven.txt",
                 "selected-eight.txt",
             ],
+        )
+
+    def test_trash_move_plan_removes_selected_numbering(self):
+        selected = [Path("07. selected.txt"), Path("08. other.txt")]
+
+        plan = build_trash_move_plan(selected, True)
+
+        self.assertEqual(
+            [final_name for _, final_name in plan],
+            ["selected.txt", "other.txt"],
+        )
+
+    def test_trash_move_plan_can_keep_selected_numbering(self):
+        selected = [Path("07. selected.txt")]
+
+        plan = build_trash_move_plan(selected, False)
+
+        self.assertEqual(
+            plan,
+            [(Path("07. selected.txt"), "07. selected.txt")],
         )
 
     def test_direct_move_plan_can_keep_selected_numbering(self):
