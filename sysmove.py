@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 import syswall
 from sysprog import DualProgressDialog
-from wconst import TEMP_PREFIX
+from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 
 NUMBERING_RE = re.compile(r"^\d{2,3}\.\s")
@@ -82,7 +82,7 @@ class MoveSelectedTask(QRunnable):
         try:
             existing_paths = [
                 path for path in self.target_folder.iterdir()
-                if path.is_file() and not path.name.startswith(TEMP_PREFIX)
+                if path.is_file() and not path.name.startswith(TEMP_PREFIX) and path.name != BACKUP_FILENAME
             ]
 
             plan = build_destination_plan(
