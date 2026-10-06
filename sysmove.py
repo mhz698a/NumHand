@@ -60,13 +60,44 @@ def build_destination_plan(existing_paths, selected_paths, remove_selected_numbe
     ]
 
 
+def build_source_plan(existing_paths):
+    existing = sorted(existing_paths, key=natural_sort_key)
+    fmt = numbering_format(len(existing))
+    return [
+        (Path(path), fmt.format(index) + remove_standard_numbering(path.name))
+        for index, path in enumerate(existing, start=1)
+    ]
+
+
+def build_direct_move_plan(selected_paths, remove_selected_numbering):
+    plan = []
+    for path in selected_paths:
+        path = Path(path)
+        name = remove_standard_numbering(path.name) if remove_selected_numbering else path.name
+        plan.append((path, name))
+    return plan
+
+
+def _has_duplicate_destination_names(plan):
+    names = [final_name.lower() for _, final_name in plan]
+    return len(names) != len(set(names))
+
+
 class MoveSelectedTask(QRunnable):
-    def __init__(self, source_folder, target_folder, selected_paths, remove_selected_numbering):
+    def __init__(
+        self,
+        source_folder,
+        target_folder,
+        selected_paths,
+        remove_selected_numbering,
+        reorganize_destination,
+    ):
         super().__init__()
         self.source_folder = Path(source_folder)
         self.target_folder = Path(target_folder)
         self.selected_paths = [Path(path) for path in selected_paths]
         self.remove_selected_numbering = remove_selected_numbering
+        self.reorganize_destination = reorganize_destination
         self.signals = MoveSignals()
 
     def _emit_progress(self, current, total, label, phase, phase_total, phase_label):
@@ -77,24 +108,68 @@ class MoveSelectedTask(QRunnable):
     def run(self):
         selected_staged = []
         target_staged = []
+        source_staged = []
         finalized = []
 
         try:
-            existing_paths = [
-                path for path in self.target_folder.iterdir()
-                if path.is_file() and not path.name.startswith(TEMP_PREFIX) and path.name != BACKUP_FILENAME
+            destination_existing = [
+                path
+                for path in self.target_folder.iterdir()
+                if path.is_file()
+                and not path.name.startswith(TEMP_PREFIX)
+                and path.name != BACKUP_FILENAME
             ]
 
-            plan = build_destination_plan(
-                existing_paths,
-                self.selected_paths,
-                self.remove_selected_numbering,
-            )
+            if self.reorganize_destination:
+                destination_plan = build_destination_plan(
+                    destination_existing,
+                    self.selected_paths,
+                    self.remove_selected_numbering,
+                )
+            else:
+                destination_plan = build_direct_move_plan(
+                    self.selected_paths,
+                    self.remove_selected_numbering,
+                )
 
-            total = len(plan)
+                existing_names = {path.name.lower() for path in destination_existing}
+                planned_names = {final_name.lower() for _, final_name in destination_plan}
+
+                if _has_duplicate_destination_names(destination_plan):
+                    raise FileExistsError(
+                        "Los archivos seleccionados producirían nombres duplicados "
+                        "en la carpeta de destino."
+                    )
+
+                conflicts = sorted(existing_names & planned_names)
+                if conflicts:
+                    raise FileExistsError(
+                        "Ya existen en la carpeta de destino los siguientes archivos: "
+                        + ", ".join(conflicts)
+                    )
+
+            source_remaining = [
+                path
+                for path in self.source_folder.iterdir()
+                if path.is_file()
+                and path not in self.selected_paths
+                and not path.name.startswith(TEMP_PREFIX)
+                and path.name != BACKUP_FILENAME
+            ]
+            source_plan = build_source_plan(source_remaining)
+
+            total_move = len(self.selected_paths)
+            total_destination = len(destination_plan)
+            total_source = len(source_plan)
+            total_work = max(total_move + total_destination + total_source, 1)
+
             self._emit_progress(
-                0, total, "Preparando movimiento...", 1, 3,
-                "Preparando archivos (Etapa 1 de 3)"
+                0,
+                total_work,
+                "Preparando movimiento...",
+                1,
+                4,
+                "Moviendo archivos seleccionados (Etapa 1 de 4)",
             )
 
             for index, source_path in enumerate(self.selected_paths, start=1):
@@ -104,53 +179,84 @@ class MoveSelectedTask(QRunnable):
                 selected_staged.append((temp_path, source_path))
                 self._emit_progress(
                     index,
-                    len(self.selected_paths),
-                    f"Moviendo seleccionado {index}/{len(self.selected_paths)}",
+                    total_work,
+                    f"Moviendo seleccionado {index}/{total_move}",
                     1,
-                    3,
-                    "Moviendo archivos seleccionados (Etapa 1 de 3)",
+                    4,
+                    "Moviendo archivos seleccionados (Etapa 1 de 4)",
                 )
 
             self._emit_progress(
-                0, total, "Evitando colisiones de nombres...", 2, 3,
-                "Preparando renombrado (Etapa 2 de 3)"
+                total_move,
+                total_work,
+                "Preparando renombrado...",
+                2,
+                4,
+                "Preparando destino y origen (Etapa 2 de 4)",
             )
 
-            staged_sources = {temp_path for temp_path, _ in selected_staged}
-            existing_for_stage = [
-                source for source, _ in plan
-                if source not in self.selected_paths
-                and source not in staged_sources
-            ]
+            if self.reorganize_destination:
+                selected_temp_paths = {temp_path for temp_path, _ in selected_staged}
+                existing_for_stage = [
+                    source
+                    for source, _ in destination_plan
+                    if source not in self.selected_paths
+                    and source not in selected_temp_paths
+                ]
 
-            for index, source_path in enumerate(existing_for_stage, start=1):
-                temp_name = f"{TEMP_PREFIX}move_{uuid.uuid4().hex}{source_path.suffix}"
-                temp_path = self.target_folder / temp_name
+                for index, source_path in enumerate(existing_for_stage, start=1):
+                    temp_name = f"{TEMP_PREFIX}move_{uuid.uuid4().hex}{source_path.suffix}"
+                    temp_path = self.target_folder / temp_name
+                    source_path.rename(temp_path)
+                    target_staged.append((temp_path, source_path))
+                    self._emit_progress(
+                        total_move + index,
+                        total_work,
+                        f"Preparando destino {index}/{len(existing_for_stage)}",
+                        2,
+                        4,
+                        "Preparando destino y origen (Etapa 2 de 4)",
+                    )
+
+            source_for_stage = [source for source, _ in source_plan]
+            for index, source_path in enumerate(source_for_stage, start=1):
+                temp_name = f"{TEMP_PREFIX}source_{uuid.uuid4().hex}{source_path.suffix}"
+                temp_path = self.source_folder / temp_name
                 source_path.rename(temp_path)
-                target_staged.append((temp_path, source_path))
+                source_staged.append((temp_path, source_path))
                 self._emit_progress(
-                    index,
-                    len(existing_for_stage),
-                    f"Preparando destino {index}/{len(existing_for_stage)}",
+                    total_move + index,
+                    total_work,
+                    f"Preparando origen {index}/{total_source}",
                     2,
-                    3,
-                    "Preparando renombrado (Etapa 2 de 3)",
+                    4,
+                    "Preparando destino y origen (Etapa 2 de 4)",
                 )
 
-            staged_lookup = {
+            destination_lookup = {
                 original: temp for temp, original in target_staged
             }
-            staged_lookup.update({
-                original: temp for temp, original in selected_staged
-            })
-
-            self._emit_progress(
-                0, total, "Aplicando numeración secuencial...", 3, 3,
-                "Aplicando nombres definitivos (Etapa 3 de 3)"
+            destination_lookup.update(
+                {original: temp for temp, original in selected_staged}
             )
 
-            for index, (original_source, final_name) in enumerate(plan, start=1):
-                temp_source = staged_lookup.get(original_source)
+            source_lookup = {
+                original: temp for temp, original in source_staged
+            }
+
+            self._emit_progress(
+                0,
+                total_work,
+                "Aplicando cambios...",
+                3,
+                4,
+                "Aplicando nombres definitivos (Etapa 3 de 4)",
+            )
+
+            for index, (original_source, final_name) in enumerate(
+                destination_plan, start=1
+            ):
+                temp_source = destination_lookup.get(original_source)
                 if temp_source is None:
                     raise FileNotFoundError(
                         f"No se encontró el archivo preparado: {original_source}"
@@ -160,12 +266,33 @@ class MoveSelectedTask(QRunnable):
                 temp_source.rename(final_path)
                 finalized.append((final_path, temp_source))
                 self._emit_progress(
-                    index,
-                    total,
-                    f"Renumerando {index}/{total}",
+                    total_move + index,
+                    total_work,
+                    f"Actualizando destino {index}/{total_destination}",
                     3,
-                    3,
-                    "Aplicando nombres definitivos (Etapa 3 de 3)",
+                    4,
+                    "Aplicando nombres definitivos (Etapa 3 de 4)",
+                )
+
+            for index, (original_source, final_name) in enumerate(
+                source_plan, start=1
+            ):
+                temp_source = source_lookup.get(original_source)
+                if temp_source is None:
+                    raise FileNotFoundError(
+                        f"No se encontró el archivo preparado: {original_source}"
+                    )
+
+                final_path = self.source_folder / final_name
+                temp_source.rename(final_path)
+                finalized.append((final_path, temp_source))
+                self._emit_progress(
+                    total_move + total_destination + index,
+                    total_work,
+                    f"Reorganizando origen {index}/{total_source}",
+                    4,
+                    4,
+                    "Cerrando huecos en la carpeta de origen (Etapa 4 de 4)",
                 )
 
             self.signals.finished.emit()
@@ -175,6 +302,13 @@ class MoveSelectedTask(QRunnable):
                 try:
                     if final_path.exists():
                         final_path.rename(temp_path)
+                except Exception:
+                    pass
+
+            for temp_path, original_path in reversed(source_staged):
+                try:
+                    if temp_path.exists():
+                        temp_path.rename(original_path)
                 except Exception:
                     pass
 
@@ -230,8 +364,11 @@ def move_selected_files(parent, model):
 
     selected_paths = [file.path for file in selected_files]
     existing_paths = [
-        path for path in target_folder.iterdir()
-        if path.is_file() and not path.name.startswith(TEMP_PREFIX)
+        path
+        for path in target_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
     ]
 
     locking_paths = selected_paths + existing_paths
@@ -263,6 +400,17 @@ def move_selected_files(parent, model):
 
     remove_selected_numbering = answer == QMessageBox.StandardButton.Yes
 
+    reorganize_answer = QMessageBox.question(
+        parent,
+        "Reorganizar carpeta de destino",
+        "¿Deseas reorganizar y renumerar también los archivos de la carpeta de destino?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    reorganize_destination = (
+        reorganize_answer == QMessageBox.StandardButton.Yes
+    )
+
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
     progress_dialog.show()
 
@@ -271,18 +419,24 @@ def move_selected_files(parent, model):
         target_folder,
         selected_paths,
         remove_selected_numbering,
+        reorganize_destination,
     )
 
     def on_finished():
         progress_dialog.close()
         model.set_all_checked(False)
         parent.file_utils.load_folder(parent, model)
-        QMessageBox.information(
-            parent,
-            "Éxito",
-            "Los archivos seleccionados fueron movidos y la numeración de la carpeta "
-            "de destino fue reorganizada correctamente.",
-        )
+        if reorganize_destination:
+            message = (
+                "Los archivos seleccionados fueron movidos y la numeración de las "
+                "carpetas de origen y destino fue reorganizada correctamente."
+            )
+        else:
+            message = (
+                "Los archivos seleccionados fueron movidos. La carpeta de origen "
+                "fue reorganizada y la carpeta de destino existente no fue modificada."
+            )
+        QMessageBox.information(parent, "Éxito", message)
 
     def on_error(message):
         progress_dialog.close()
