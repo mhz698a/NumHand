@@ -3,6 +3,8 @@ from pathlib import Path
 
 from sysmove import (
     build_destination_plan,
+    build_direct_move_plan,
+    build_source_plan,
     numbering_format,
     remove_standard_numbering,
 )
@@ -33,7 +35,7 @@ class SysMoveTests(unittest.TestCase):
         self.assertEqual(numbering_format(100), "{:03d}. ")
         self.assertEqual(numbering_format(1000), "{:04d}. ")
 
-    def test_destination_plan_preserves_existing_order_and_appends_selected(self):
+    def test_destination_plan_renumbers_existing_and_appends_selected(self):
         existing = [
             Path("002. existing-two.txt"),
             Path("001. existing-one.txt"),
@@ -55,7 +57,7 @@ class SysMoveTests(unittest.TestCase):
             ],
         )
 
-    def test_destination_plan_can_preserve_selected_numbering(self):
+    def test_destination_plan_can_preserve_selected_numbering_when_reorganizing(self):
         existing = [Path("001. existing.txt")]
         selected = [Path("02. selected.txt")]
 
@@ -64,6 +66,68 @@ class SysMoveTests(unittest.TestCase):
         self.assertEqual(
             plan[-1][1],
             "02. 02. selected.txt",
+        )
+
+    def test_direct_move_plan_does_not_rename_existing_destination_files(self):
+        selected = [
+            Path("07. selected-seven.txt"),
+            Path("08. selected-eight.txt"),
+        ]
+
+        plan = build_direct_move_plan(selected, True)
+
+        self.assertEqual(
+            [final_name for _, final_name in plan],
+            [
+                "selected-seven.txt",
+                "selected-eight.txt",
+            ],
+        )
+
+    def test_direct_move_plan_can_keep_selected_numbering(self):
+        selected = [Path("07. selected.txt")]
+
+        plan = build_direct_move_plan(selected, False)
+
+        self.assertEqual(
+            plan,
+            [(Path("07. selected.txt"), "07. selected.txt")],
+        )
+
+    def test_source_plan_closes_gaps_after_selected_files_are_removed(self):
+        remaining = [
+            Path("042. forty-two.txt"),
+            Path("001. first.txt"),
+            Path("040. forty.txt"),
+            Path("039. thirty-nine.txt"),
+        ]
+
+        plan = build_source_plan(remaining)
+
+        self.assertEqual(
+            [final_name for _, final_name in plan],
+            [
+                "01. first.txt",
+                "02. thirty-nine.txt",
+                "03. forty.txt",
+                "04. forty-two.txt",
+            ],
+        )
+
+    def test_source_plan_removes_existing_standard_prefix_before_renumbering(self):
+        remaining = [
+            Path("12. twelve.txt"),
+            Path("003. three.txt"),
+        ]
+
+        plan = build_source_plan(remaining)
+
+        self.assertEqual(
+            [final_name for _, final_name in plan],
+            [
+                "01. three.txt",
+                "02. twelve.txt",
+            ],
         )
 
 
