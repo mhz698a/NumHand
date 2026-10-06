@@ -247,6 +247,7 @@ class MoveSelectedTask(QRunnable):
         self.selected_paths = [Path(path) for path in selected_paths]
         self.remove_selected_numbering = remove_selected_numbering
         self.reorganize_destination = reorganize_destination
+        self.reorganize_source = reorganize_source
         self.signals = MoveSignals()
 
     def _emit_progress(self, current, total, label, phase, phase_total, phase_label):
