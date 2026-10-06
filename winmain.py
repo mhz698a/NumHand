@@ -13,7 +13,6 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from sysfiles import FileUtils
-from sysutils import clean_prefix
 from sysmove import move_selected_files
 from wutils_foobar2000 import check_foobar2000_playing_file
 
