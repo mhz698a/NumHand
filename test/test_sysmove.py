@@ -5,6 +5,7 @@ from sysmove import (
     build_destination_plan,
     build_direct_move_plan,
     build_source_plan,
+    detect_folder_numbering,
     numbering_format,
     remove_standard_numbering,\n    build_trash_move_plan,
 )
@@ -112,6 +113,24 @@ class SysMoveTests(unittest.TestCase):
         self.assertEqual(
             plan,
             [(Path("07. selected.txt"), "07. selected.txt")],
+        )
+
+    def test_detect_folder_numbering(self):
+        self.assertEqual(
+            detect_folder_numbering([Path("01. first.txt"), Path("02. second.txt")]),
+            "00. ",
+        )
+        self.assertEqual(
+            detect_folder_numbering([Path("001. first.txt"), Path("002. second.txt")]),
+            "000. ",
+        )
+        self.assertEqual(
+            detect_folder_numbering([Path("first.txt"), Path("second.txt")]),
+            "sin numerar",
+        )
+        self.assertEqual(
+            detect_folder_numbering([Path("01. first.txt"), Path("second.txt")]),
+            "mixta",
         )
 
     def test_source_plan_closes_gaps_after_selected_files_are_removed(self):
