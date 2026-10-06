@@ -147,6 +147,26 @@ def build_trash_move_plan(selected_paths, remove_selected_numbering):
     )
 
 
+def detect_folder_numbering(paths):
+    files = [Path(path) for path in paths if Path(path).is_file()]
+    files = [
+        path for path in files
+        if not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    if not files:
+        return "sin numerar"
+    two_digit = sum(bool(re.match(r"^\d{2}\.\s", path.name)) for path in files)
+    three_digit = sum(bool(re.match(r"^\d{3}\.\s", path.name)) for path in files)
+    if two_digit == len(files):
+        return "00. "
+    if three_digit == len(files):
+        return "000. "
+    if two_digit == 0 and three_digit == 0:
+        return "sin numerar"
+    return "mixta"
+
+
 def remove_standard_numbering(filename):
     return NUMBERING_RE.sub("", Path(filename).name, count=1)
 
@@ -219,6 +239,7 @@ class MoveSelectedTask(QRunnable):
         selected_paths,
         remove_selected_numbering,
         reorganize_destination,
+        reorganize_source=True,
     ):
         super().__init__()
         self.source_folder = Path(source_folder)
@@ -284,7 +305,7 @@ class MoveSelectedTask(QRunnable):
                 and not path.name.startswith(TEMP_PREFIX)
                 and path.name != BACKUP_FILENAME
             ]
-            source_plan = build_source_plan(source_remaining)
+            source_plan = build_source_plan(source_remaining) if self.reorganize_source else []
 
             total_move = len(self.selected_paths)
             total_destination = len(destination_plan)
@@ -457,6 +478,31 @@ class MoveSelectedTask(QRunnable):
             self.signals.error.emit(f"Error durante el movimiento de archivos: {error}")
 
 
+def check_folder_numbering(parent, model):
+    source_folder = getattr(parent, "folder", None)
+    if not source_folder or not Path(source_folder).is_dir():
+        QMessageBox.warning(parent, "Atención", "No hay ninguna carpeta cargada.")
+        return
+    paths = [
+        path for path in Path(source_folder).resolve().iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    numbering = detect_folder_numbering(paths)
+    messages = {
+        "00. ": 'La carpeta está numerada en formato de dos dígitos: "00. ".',
+        "000. ": 'La carpeta está numerada en formato de tres dígitos: "000. ".',
+        "sin numerar": "La carpeta no está numerada.",
+        "mixta": "La carpeta tiene una numeración mixta o incompleta.",
+    }
+    QMessageBox.information(
+        parent,
+        "Comprobar Numeración de esta carpeta",
+        messages[numbering],
+    )
+
+
 def move_selected_files(parent, model):
     selected_files = model.checked_files()
     if not selected_files:
@@ -491,6 +537,15 @@ def move_selected_files(parent, model):
         return
 
     selected_paths = [file.path for file in selected_files]
+    source_paths = [
+        path for path in source_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    source_numbering = detect_folder_numbering(source_paths)
+    reorganize_source = source_numbering in ("00. ", "000. ")
+
     existing_paths = [
         path
         for path in target_folder.iterdir()
@@ -548,6 +603,7 @@ def move_selected_files(parent, model):
         selected_paths,
         remove_selected_numbering,
         reorganize_destination,
+        reorganize_source,
     )
 
     def on_finished():
@@ -636,6 +692,14 @@ def move_selected_to_trash(parent, model):
         numbering_answer == QMessageBox.StandardButton.Yes
     )
     selected_paths = [Path(file.path) for file in selected_files]
+    source_paths = [
+        path for path in source_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    source_numbering = detect_folder_numbering(source_paths)
+    reorganize_source = source_numbering in ("00. ", "000. ")
 
     trash_existing = [
         path
@@ -689,6 +753,7 @@ def move_selected_to_trash(parent, model):
         selected_paths,
         remove_selected_numbering,
         False,
+        reorganize_source,
     )
 
     def on_finished():
@@ -698,8 +763,12 @@ def move_selected_to_trash(parent, model):
         QMessageBox.information(
             parent,
             "Éxito",
-            "Los archivos seleccionados fueron movidos a la papelera "
-            "y la carpeta de origen fue reorganizada.",
+            "Los archivos seleccionados fueron movidos al destino guardado en QSettings. "
+            + (
+                "La carpeta de origen fue reorganizada."
+                if reorganize_source
+                else "La carpeta de origen no estaba numerada y no fue alterada."
+            ),
         )
 
     def on_error(message):
