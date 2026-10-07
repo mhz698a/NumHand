@@ -5,13 +5,15 @@ import platform
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QMessageBox
+    QVBoxLayout, QMessageBox, QDockWidget
 )
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt
 
 from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
+from widget_left_p import IndividualTaggerPanel
 from sysfiles import FileUtils
 from sysmove import (
     check_folder_numbering,
@@ -51,6 +53,13 @@ class WMain(QMainWindow):
 
         self.file_list = FileListView()
         v_layout.addWidget(self.file_list)
+
+        self.tagger_dock = QDockWidget("Tagger Individual", self)
+        self.tagger_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tagger_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.tagger_panel = IndividualTaggerPanel(self.tagger_dock)
+        self.tagger_dock.setWidget(self.tagger_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.tagger_dock)
 
     def build_listview(self):
         self.file_list.setModel(
@@ -103,8 +112,6 @@ class WMain(QMainWindow):
         accion_salir.triggered.connect(self.close)
         menu_archivo.addAction(accion_salir)
 
-        # ----------------------------------------
-
         menu_editar = barra_menu.addMenu("&Edit")
 
         ac_select_all = QAction("Select All", self)
@@ -127,8 +134,6 @@ class WMain(QMainWindow):
 
         menu_editar.addSeparator()
 
-        # ----------------------------------------
-
         menu_utilidades = barra_menu.addMenu("&Utilidades")
 
         ac_desnum_folder = QAction("Reset Numeration Folder", self)
@@ -147,7 +152,7 @@ class WMain(QMainWindow):
 
         menu_utilidades.addSeparator()
 
-        ac_format_hundreds = QAction("Convert to hundreds format", self)
+        ac_format_hundreds = QAction("Convert to hundreds format")
         ac_format_hundreds.triggered.connect(
             lambda: self.file_utils.format_hundreds(self, self.model)
         )
