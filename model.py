@@ -8,7 +8,7 @@ from PyQt6.QtCore import (
 
 
 class FileEntry:
-    def __init__(self, path, is_checked=False):       # 1. Cambiado a False
+    def __init__(self, path, is_checked=False):
         self.path = Path(path)
         self.original_path = self.path
         self.original_name = self.path.name
