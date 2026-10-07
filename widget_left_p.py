@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QComboBox,
+    QCheckBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -42,6 +42,19 @@ class IndividualTaggerPanel(QWidget):
         metadata_layout.setSpacing(6)
         metadata_layout.setVerticalSpacing(8)
 
+        # Checkboxes que actúan como etiquetas
+        self.title_check = QCheckBox("Title:")
+        self.artist_check = QCheckBox("Artist:")
+        self.album_check = QCheckBox("Album:")
+        self.year_check = QCheckBox("Year:")
+        self.date_check = QCheckBox("Date:")
+        self.track_check = QCheckBox("Track:")
+        self.disc_check = QCheckBox("Disc:")
+        self.genre_check = QCheckBox("Genre:")
+        self.cover_check = QCheckBox("Cover:")
+        self.comment_check = QCheckBox("Comment:")
+
+        # Inputs
         self.title_edit = QLineEdit()
         title_layout = QHBoxLayout()
         title_layout.setSpacing(4)
@@ -70,14 +83,15 @@ class IndividualTaggerPanel(QWidget):
         self.genre_stack = QStackedWidget()
         self.genre_stack.addWidget(self.genre_line)
 
-        metadata_layout.addRow(QLabel("Title:"), title_layout)
-        metadata_layout.addRow(QLabel("Artist:"), artist_layout)
-        metadata_layout.addRow(QLabel("Album:"), self.album_edit)
-        metadata_layout.addRow(QLabel("Year:"), self.year_edit)
-        metadata_layout.addRow(QLabel("Date:"), self.date_edit)
-        metadata_layout.addRow(QLabel("Track:"), self.track_edit)
-        metadata_layout.addRow(QLabel("Disc:"), self.disc_edit)
-        metadata_layout.addRow(QLabel("Genre:"), self.genre_stack)
+        # Asignación directa al FormLayout
+        metadata_layout.addRow(self.title_check, title_layout)
+        metadata_layout.addRow(self.artist_check, artist_layout)
+        metadata_layout.addRow(self.album_check, self.album_edit)
+        metadata_layout.addRow(self.year_check, self.year_edit)
+        metadata_layout.addRow(self.date_check, self.date_edit)
+        metadata_layout.addRow(self.track_check, self.track_edit)
+        metadata_layout.addRow(self.disc_check, self.disc_edit)
+        metadata_layout.addRow(self.genre_check, self.genre_stack)
 
         self.cover_widget = QFrame()
         self.cover_widget.setFixedSize(180, 180)
@@ -89,14 +103,14 @@ class IndividualTaggerPanel(QWidget):
         cover_layout.addWidget(self.cover_widget)
         cover_layout.addStretch()
 
-        metadata_layout.addRow(QLabel("Cover:"), cover_layout)
+        metadata_layout.addRow(self.cover_check, cover_layout)
 
         self.comment_edit = QTextEdit()
-        metadata_layout.addRow(QLabel("Comment:"), self.comment_edit)
+        metadata_layout.addRow(self.comment_check, self.comment_edit)
 
         main_layout.addLayout(metadata_layout)
         main_layout.addStretch()
-        
+
         self.apply_tags = QPushButton("Apply Tags")
 
         footer_layout = QHBoxLayout()
