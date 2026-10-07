@@ -38,7 +38,7 @@ class WMain(QMainWindow):
             self.file_utils.load_folder(self, self.model)
 
         self.setWindowTitle("Numeric Handler Files")
-        self.resize(500, 700)
+        self.resize(1000, 700)
         self.build_ui()
         self.build_menubar()
         self.build_listview()
@@ -54,7 +54,7 @@ class WMain(QMainWindow):
         self.file_list = FileListView()
         v_layout.addWidget(self.file_list)
 
-        self.tagger_dock = QDockWidget("Tagger Individual", self)
+        self.tagger_dock = QDockWidget("File Tags (Invididual)", self)
         self.tagger_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.tagger_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.tagger_panel = IndividualTaggerPanel(self.tagger_dock)
@@ -62,13 +62,10 @@ class WMain(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.tagger_dock)
 
     def build_listview(self):
-        self.file_list.setModel(
-            self.model
-        )
-
+        self.file_list.setModel(self.model)
         self.file_list.setItemDelegate(
             FileDelegate(self.file_list, main_window=self)
-        )
+            )
 
     def build_menubar(self):
         barra_menu = self.menuBar()
@@ -213,35 +210,6 @@ class WMain(QMainWindow):
         ac_copy_names = QAction("Copiar nombres de archivos seleccionados", self)
         ac_copy_names.triggered.connect(self.copy_selected_names)
         menu_utilidades.addAction(ac_copy_names)
-
-
-    def check_foobar2000_playing_file(self):
-        from wutils_foobar2000 import is_file_from_list_playing
-
-        try:
-            is_playing = is_file_from_list_playing(
-                file.path for file in self.model.files
-            )
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "foobar2000",
-                f"Could not connect to foobar2000: {exc}"
-            )
-            return
-
-        if is_playing:
-            QMessageBox.information(
-                self,
-                "foobar2000",
-                "foobar2000 is playing a file from the loaded folder."
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "foobar2000",
-                "foobar2000 is not playing a file from the loaded folder."
-            )
 
     def copy_selected_paths(self):
         selected_files = self.model.checked_files()
