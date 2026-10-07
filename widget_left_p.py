@@ -43,14 +43,9 @@ class IndividualTaggerPanel(QWidget):
         metadata_layout.setVerticalSpacing(8)
 
         self.title_edit = QLineEdit()
-
-        self.title_id_button = QPushButton("(ID:)")
-        self.title_id_button.setToolTip("Añadir (ID:) al título")
-
         title_layout = QHBoxLayout()
         title_layout.setSpacing(4)
         title_layout.addWidget(self.title_edit)
-        title_layout.addWidget(self.title_id_button)
 
         self.artist_edit = QLineEdit()
         artist_layout = QHBoxLayout()

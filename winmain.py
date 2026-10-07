@@ -57,15 +57,17 @@ class WMain(QMainWindow):
         self.tagger_dock = QDockWidget("File Tags (Invididual)", self)
         self.tagger_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.tagger_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        
         self.tagger_panel = IndividualTaggerPanel(self.tagger_dock)
         self.tagger_dock.setWidget(self.tagger_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.tagger_dock)
+        
 
     def build_listview(self):
         self.file_list.setModel(self.model)
         self.file_list.setItemDelegate(
             FileDelegate(self.file_list, main_window=self)
-            )
+        )
 
     def build_menubar(self):
         barra_menu = self.menuBar()
