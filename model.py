@@ -6,6 +6,8 @@ from PyQt6.QtCore import (
     Qt
 )
 
+from tag_reader import read_file_tags
+
 
 class FileEntry:
     def __init__(self, path, is_checked=False):
@@ -22,7 +24,9 @@ class FileEntry:
         self.original_clean_name = self.clean_name
         self.original_row = None
         self.pending_name = None
-    
+        
+        self.metadata = read_file_tags(self.path)
+
 
 class FileModel(QAbstractListModel):
 
