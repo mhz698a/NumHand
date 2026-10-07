@@ -14,7 +14,7 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from widget_left_p import IndividualTaggerPanel
-from apply_non_enum import apply_changes_non_enum
+from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
 from sysmove import (
     check_folder_numbering,
