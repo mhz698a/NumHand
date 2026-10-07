@@ -14,6 +14,7 @@ from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
 from widget_left_p import IndividualTaggerPanel
+from apply_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
 from sysmove import (
     check_folder_numbering,
@@ -100,6 +101,12 @@ class WMain(QMainWindow):
             lambda: self.file_utils.apply_order(self, self.model)
         )
         menu_archivo.addAction(ac_apply_changes)
+
+        ac_apply_changes_non_enum = QAction("Apply changes (Non-Enum)", self)
+        ac_apply_changes_non_enum.triggered.connect(
+            lambda: apply_changes_non_enum(self, self.model)
+        )
+        menu_archivo.addAction(ac_apply_changes_non_enum)
 
         menu_archivo.addSeparator()
 
