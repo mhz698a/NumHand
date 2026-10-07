@@ -22,7 +22,8 @@ from sysmove import (
     set_trash_folder,
 )
 from wutils_foobar2000 import check_foobar2000_playing_file
-from tag_controller import update_tagger_panel
+from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
+
 
 class WMain(QMainWindow):
 
@@ -60,6 +61,7 @@ class WMain(QMainWindow):
         self.tagger_dock.setWidget(self.tagger_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.tagger_dock)
         
+        self.tagger_panel.apply_tags.clicked.connect(self._on_apply_tags_clicked)
 
     def build_listview(self):
         self.file_list.setModel(self.model)
@@ -69,6 +71,15 @@ class WMain(QMainWindow):
         self.file_list.selectionModel().selectionChanged.connect(
             self._on_file_selection_changed
         )
+    
+    def _on_apply_tags_clicked(self):
+        selected_indexes = self.file_list.selectionModel().selectedIndexes()
+        selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
+        
+        apply_panel_tags_to_selection(self.tagger_panel, selected_entries)
+        
+        # Refrescar vista del panel derecho
+        update_tagger_panel(self.tagger_panel, selected_entries)
 
     def build_menubar(self):
         def add_menu_items(menu, items):
