@@ -112,6 +112,8 @@ class WMain(QMainWindow):
         accion_salir.triggered.connect(self.close)
         menu_archivo.addAction(accion_salir)
 
+        # ----------------------------------------
+
         menu_editar = barra_menu.addMenu("&Edit")
 
         ac_select_all = QAction("Select All", self)
@@ -134,6 +136,8 @@ class WMain(QMainWindow):
 
         menu_editar.addSeparator()
 
+        # ----------------------------------------
+
         menu_utilidades = barra_menu.addMenu("&Utilidades")
 
         ac_desnum_folder = QAction("Reset Numeration Folder", self)
@@ -152,7 +156,7 @@ class WMain(QMainWindow):
 
         menu_utilidades.addSeparator()
 
-        ac_format_hundreds = QAction("Convert to hundreds format")
+        ac_format_hundreds = QAction("Convert to hundreds format", self)
         ac_format_hundreds.triggered.connect(
             lambda: self.file_utils.format_hundreds(self, self.model)
         )
