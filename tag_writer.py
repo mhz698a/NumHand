@@ -1,16 +1,26 @@
-from pathlib import Path
+import os
+import contextlib
 import mutagen
+from pathlib import Path
+
+from pyutils.wctime import setctime_blocking
+
 
 SUPPORTED_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".m4v"}
 
 def write_file_tags(file_path: Path, new_tags: dict) -> bool:
-    """Escribe los metadatos indicados en el archivo según su extensión.
-    
-    new_tags es un diccionario que contiene solo los campos marcados/modificados.
-    """
+    """Escribe metadatos respaldando y restaurando las fechas originales del archivo."""
     path = Path(file_path)
     if path.suffix.lower() not in SUPPORTED_EXTENSIONS or not path.exists():
         return False
+
+    # 1. RESPALDAR FECHAS ANTES DE MODIFICAR
+    orig_atime = orig_mtime = orig_ctime = None
+    with contextlib.suppress(OSError):
+        stat = path.stat()
+        orig_atime = stat.st_atime
+        orig_mtime = stat.st_mtime
+        orig_ctime = stat.st_ctime
 
     try:
         ext = path.suffix.lower()
@@ -46,6 +56,17 @@ def write_file_tags(file_path: Path, new_tags: dict) -> bool:
             if "genre" in new_tags: mp4["\xa9gen"] = [new_tags["genre"]]
             if "comment" in new_tags: mp4["\xa9cmt"] = [new_tags["comment"]]
             audio.save()
+
+        # 2. RESTAURAR FECHAS DE ACCESO Y MODIFICACIÓN (atime y mtime)
+        if orig_atime is not None and orig_mtime is not None:
+            os.utime(str(path), (orig_atime, orig_mtime))
+
+        # 3. RESTAURAR FECHA DE CREACIÓN (ctime) usando wctime si está disponible
+        if orig_ctime is not None and setctime_blocking is not None:
+            try:
+                setctime_blocking(str(path), orig_ctime)
+            except Exception:
+                pass
 
         return True
     except Exception:

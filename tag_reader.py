@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 import mutagen
 
@@ -12,7 +13,9 @@ DEFAULT_TAGS = {
     "track": "",
     "disc": "",
     "genre": "",
-    "comment": ""
+    "comment": "",
+    "mtime": "",
+    "ctime": ""
 }
 
 def _parse_track_disc(value):
@@ -74,6 +77,14 @@ def read_file_tags(file_path: Path) -> dict:
             tags["disc"] = _parse_track_disc(mp4.get("disk", [()])[0])
             tags["genre"] = str(mp4.get("\xa9gen", [""])[0])
             tags["comment"] = str(mp4.get("\xa9cmt", [""])[0])
+
+        try:
+            st = file_path.stat()
+            tags["mtime"] = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            tags["ctime"] = datetime.fromtimestamp(st.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
+        except OSError:
+            tags["mtime"] = ""
+            tags["ctime"] = ""
 
     except Exception:
         pass

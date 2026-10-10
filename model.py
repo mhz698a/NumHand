@@ -8,7 +8,6 @@ from PyQt6.QtCore import (
 
 from tag_reader import read_file_tags
 
-
 class FileEntry:
     def __init__(self, path, is_checked=False):
         self.path = Path(path)
@@ -110,10 +109,7 @@ class FileModel(QAbstractListModel):
 
     def set_files(self, files):
         self.beginResetModel()
-        self.files = [
-            FileEntry(file)
-            for file in files
-        ]
+        self.files = [FileEntry(file) for file in files]
         for row, file in enumerate(self.files):
             file.original_row = row
         self.endResetModel()
@@ -157,10 +153,7 @@ class FileModel(QAbstractListModel):
 
         file = self.files.pop(source_row)
 
-        self.files.insert(
-            target_row,
-            file
-        )
+        self.files.insert(target_row,file)
 
         self.endMoveRows()
 

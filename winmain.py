@@ -23,7 +23,7 @@ from sysmove import (
 )
 from wutils_foobar2000 import check_foobar2000_playing_file
 from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
-
+from wstatusbar import setup_status_bar, show_status_message
 
 class WMain(QMainWindow):
 
@@ -41,6 +41,8 @@ class WMain(QMainWindow):
         self.build_ui()
         self.build_menubar()
         self.build_listview()
+        
+        setup_status_bar(self)
 
         if self.folder and self.folder.exists():
             self.file_utils.load_folder(self, self.model)
@@ -76,9 +78,11 @@ class WMain(QMainWindow):
         selected_indexes = self.file_list.selectionModel().selectedIndexes()
         selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
         
-        apply_panel_tags_to_selection(self.tagger_panel, selected_entries)
+        apply_panel_tags_to_selection(
+            self.tagger_panel,  selected_entries, 
+            status_callback=lambda msg: show_status_message(self, msg, 5000)
+        )
         
-        # Refrescar vista del panel derecho
         update_tagger_panel(self.tagger_panel, selected_entries)
 
     def build_menubar(self):
