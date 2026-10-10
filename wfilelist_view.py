@@ -27,7 +27,7 @@ class FileListView(QListView):
         )
 
         self.setSelectionMode(
-            QListView.SelectionMode.SingleSelection
+            QListView.SelectionMode.ExtendedSelection
         )
 
     # ---------------------------------

@@ -523,6 +523,7 @@ def move_selected_files(parent, model):
     target_folder = QFileDialog.getExistingDirectory(
         parent,
         "Seleccionar carpeta de destino",
+        str(parent.folder) if parent.folder else None
     )
     if not target_folder:
         return
