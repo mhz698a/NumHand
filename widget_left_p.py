@@ -1,25 +1,15 @@
 from pathlib import Path
-from PyQt6.QtCore import Qt, pyqtSignal, QBuffer, QIODevice
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtCore import Qt, QBuffer, QIODevice
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QStackedWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QCheckBox, QFileDialog, QFormLayout,
+    QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
+    QPushButton, QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from wcoverlabel import CoverLabel
-from tag_cover import read_cover_art, export_cover_art, get_common_cover
+from tag_cover import read_cover_art, get_common_cover
+from tag_utilbox import UtilityLineEdit, UtilityTextEdit
 
 class IndividualTaggerPanel(QWidget):
     def __init__(self, parent=None):
@@ -40,20 +30,16 @@ class IndividualTaggerPanel(QWidget):
         main_layout.setContentsMargins(10, 5, 10, 10)
         main_layout.setSpacing(8)
 
-        header_layout = QHBoxLayout()
-        header_layout.addWidget(QLabel("..."))
-        header_layout.addStretch()
-
-        self.newgrounds_button = QPushButton("Newgrounds")
-        header_layout.addWidget(self.newgrounds_button)
-
-        main_layout.addLayout(header_layout)
-
         metadata_layout = QFormLayout()
         metadata_layout.setSpacing(6)
         metadata_layout.setVerticalSpacing(8)
 
         # Checkboxes que actúan como etiquetas
+        self.filename_field_rom = UtilityLineEdit(self, field_type="filename", panel_ref=self)
+        self.filename_field_rom.setReadOnly(True)
+        self.filename_field_rom.setPlaceholderText("...")
+        metadata_layout.addRow(QLabel("Filename:"), self.filename_field_rom)
+        
         self.title_check = QCheckBox("Title:")
         self.artist_check = QCheckBox("Artist:")
         self.album_check = QCheckBox("Album:")
@@ -66,30 +52,30 @@ class IndividualTaggerPanel(QWidget):
         self.comment_check = QCheckBox("Comment:")
 
         # Inputs
-        self.title_edit = QLineEdit()
+        self.title_edit = UtilityLineEdit()
         title_layout = QHBoxLayout()
         title_layout.setSpacing(4)
         title_layout.addWidget(self.title_edit)
 
-        self.artist_edit = QLineEdit()
+        self.artist_edit = UtilityLineEdit()
         artist_layout = QHBoxLayout()
         artist_layout.addWidget(self.artist_edit)
 
-        self.album_edit = QLineEdit()
+        self.album_edit = UtilityLineEdit()
 
-        self.year_edit = QLineEdit()
+        self.year_edit = UtilityLineEdit()
         self.year_edit.setPlaceholderText("YYYY")
 
-        self.date_edit = QLineEdit()
+        self.date_edit = UtilityLineEdit(self, field_type="date")
         self.date_edit.setPlaceholderText("YYYY-MM-DD o YYYY-MM-DDTHH:MM:SSZ")
 
-        self.track_edit = QLineEdit()
+        self.track_edit = UtilityLineEdit()
         self.track_edit.setPlaceholderText("00 o 00/00")
 
-        self.disc_edit = QLineEdit()
+        self.disc_edit = UtilityLineEdit()
         self.disc_edit.setPlaceholderText("00/00, 000/000 o 00/000")
 
-        self.genre_line = QLineEdit()
+        self.genre_line = UtilityLineEdit()
 
         self.genre_stack = QStackedWidget()
         self.genre_stack.addWidget(self.genre_line)
@@ -115,7 +101,7 @@ class IndividualTaggerPanel(QWidget):
         
         metadata_layout.addRow(self.cover_check, cover_layout)
 
-        self.comment_edit = QTextEdit()
+        self.comment_edit = UtilityTextEdit()
         metadata_layout.addRow(self.comment_check, self.comment_edit)
         
         self.mtime_edit = QLineEdit()
@@ -159,9 +145,15 @@ class IndividualTaggerPanel(QWidget):
         self.common_cover_bytes = None
 
         if not entries:
+            self.filename_field_rom.clear()
             self.cover_widget.setPixmap(QPixmap())
             self.cover_widget.set_has_cover(False)
             return
+        
+        if len(entries) == 1:
+            self.filename_field_rom.setText(entries[0].path.stem)
+        else:
+            self.filename_field_rom.setText(f"{len(entries)} selected files")
 
         if len(entries) == 1:
             data = read_cover_art(entries[0].path)
