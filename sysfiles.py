@@ -31,7 +31,7 @@ class FileUtils:
             path = Path(folder)
             if path.is_dir():
                 self.folder_cache.sync_folder(path, excluded_prefix=TEMP_PREFIX)
-        except (OSError, RuntimeError, ValueError) as error:
+        except Exception as error:
             logging.warning("No se pudo sincronizar la cache de %s: %s", folder, error)
 
     def select_folder(self, parent, model):
