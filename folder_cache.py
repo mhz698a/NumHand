@@ -27,7 +27,10 @@ def _compare_explorer_names(left, right):
     """Use the native Windows Explorer comparator when available."""
     if os.name == "nt":
         import ctypes
-        return ctypes.windll.shlwapi.StrCmpLogicalW(str(left), str(right))
+        compare = ctypes.windll.shlwapi.StrCmpLogicalW
+        compare.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+        compare.restype = ctypes.c_int
+        return compare(str(left), str(right))
 
     left_key = windows_explorer_sort_key(left)
     right_key = windows_explorer_sort_key(right)
