@@ -3,8 +3,8 @@ import sys
 import argparse
 import ctypes
 import platform
-from PyQt6.QtWidgets import QApplication # type: ignore
-from PyQt6.QtGui import QIcon # type: ignore
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QIcon
 from winmain import WMain
 
 if platform.system() == "Windows":
@@ -25,7 +25,7 @@ if __name__ == "__main__":
         path_input = str(path_obj.parent)
     
     APP_DIR = Path(__file__).resolve().parent.as_posix()
-    ICON_PATH = f"{APP_DIR}/handicon.png"
+    ICON_PATH = f"{APP_DIR}/assets/handicon.png"
     
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(ICON_PATH))
