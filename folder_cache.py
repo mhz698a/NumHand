@@ -161,3 +161,7 @@ class FolderCache:
                 "DELETE FROM folder_cache WHERE last_access < ?", (cutoff,)
             )
             return cursor.rowcount
+    
+    def close(self):
+        """Método de compatibilidad para cerrar recursos si fuera necesario."""
+        pass

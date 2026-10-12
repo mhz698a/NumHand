@@ -1,22 +1,28 @@
-import os
+import os, sys
 import sqlite3
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from folder_cache import FolderCache
 
 
 class FolderCacheTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.root = Path(self.temp_dir.name)
         self.folder = self.root / "media"
         self.folder.mkdir()
         self.cache = FolderCache(self.root / "cache" / "folder_cache.db")
 
     def tearDown(self):
+        # 1. Primero cerramos la conexión de la base de datos
+        if hasattr(self, 'cache') and self.cache:
+            self.cache.close() 
+            
+        # 2. Ahora Windows sí te dejará borrar la carpeta sin errores
         self.temp_dir.cleanup()
 
     def names(self):
