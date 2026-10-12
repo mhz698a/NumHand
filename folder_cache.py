@@ -95,6 +95,19 @@ class FolderCache:
             """, (key, directory_mtime_ns, serialized, now))
         return paths
 
+    def sync_folder(self, folder, excluded_prefix=".__file_manager__"):
+        """Rebuild and persist the listing after an application-managed change.
+
+        Directory entry changes normally update the filesystem mtime. Removing
+        the old row first also guarantees a fresh listing on filesystems whose
+        timestamp granularity is coarse.
+        """
+        folder = Path(folder).resolve()
+        key = self._key(folder)
+        with self._connect() as connection:
+            connection.execute("DELETE FROM folder_cache WHERE folder_path = ?", (key,))
+        return self.list_files(folder, excluded_prefix=excluded_prefix)
+
     def clear_older_than(self, days=30):
         cutoff = time.time() - max(0, days) * 24 * 60 * 60
         with self._connect() as connection:
