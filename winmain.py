@@ -84,6 +84,8 @@ class WMain(QMainWindow):
             self.tagger_panel,  selected_entries, 
             status_callback=lambda msg: show_status_message(self, msg, 5000)
         )
+        if self.folder and self.folder.is_dir():
+            self.file_utils.sync_folder_cache(self.folder)
         
         update_tagger_panel(self.tagger_panel, selected_entries)
 
