@@ -11,6 +11,7 @@ from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 class WorkerSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)  # (sub_current, sub_total, sub_label, main_current, main_total, main_label)
+    file_loaded = pyqtSignal(object)                    # FileEntry preparado en el hilo de carga
     finished = pyqtSignal(object)                         # result payload
     error = pyqtSignal(str)                              # error message
 
@@ -35,12 +36,21 @@ class LoadFolderTask(QRunnable):
                     return
 
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-            self.signals.progress.emit(0, 0, "Consultando cache de archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
             files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
             total = len(files)
-            self.signals.progress.emit(total, total, f"{total} archivos listos.", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
 
-            self.signals.finished.emit(files)
+            # Preparar y emitir cada entrada por separado. La lectura de metadatos
+            # ocurre en este worker, no en el hilo de la interfaz.
+            from model import FileEntry
+            for index, path in enumerate(files, start=1):
+                entry = FileEntry(path)
+                self.signals.file_loaded.emit(entry)
+                self.signals.progress.emit(
+                    index, total, f"Cargando archivo {index}/{total}: {path.name}",
+                    1, 1, "Cargando carpeta (Etapa 1 de 1)"
+                )
+
+            self.signals.finished.emit(total)
         except Exception as e:
             self.signals.error.emit(str(e))
 
