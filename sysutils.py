@@ -45,6 +45,21 @@ class LoadFolderTask(QRunnable):
             self.signals.error.emit(str(e))
 
 
+def build_apply_order_plan(files, folder_path, number_format):
+    """Return only entries whose final path differs from their current path."""
+    folder_path = Path(folder_path)
+    plan = []
+    for index, file in enumerate(files, start=1):
+        final_path = folder_path / (number_format.format(index) + file.clean_name)
+        if final_path != file.path:
+            plan.append({
+                "file": file,
+                "temp_path": folder_path / (TEMP_PREFIX + uuid.uuid4().hex + file.path.suffix),
+                "final_path": final_path,
+            })
+    return plan
+
+
 class ApplyOrderTask(QRunnable):
     def __init__(self, folder_path, files, file_utils):
         super().__init__()
@@ -68,21 +83,14 @@ class ApplyOrderTask(QRunnable):
             else:
                 number_format = "{:04d}. "
 
-            # FASE 1: Plan
-            temp_files = []
-            for index, file in enumerate(self.files, start=1):
-                temp_name = TEMP_PREFIX + uuid.uuid4().hex + file.path.suffix
-                temp_path = self.folder_path / temp_name
-
-                # Asegurar que clean_name incluye la extensión
-                final_name = number_format.format(index) + file.clean_name
-                final_path = self.folder_path / final_name
-
-                temp_files.append({
-                    "file": file,
-                    "temp_path": temp_path,
-                    "final_path": final_path
-                })
+            # Solo preparar archivos cuyo nombre final realmente cambia.
+            # El índice sigue considerando todos los archivos para conservar la numeración.
+            temp_files = build_apply_order_plan(
+                self.files, self.folder_path, number_format
+            )
+            if not temp_files:
+                self.signals.finished.emit(True)
+                return
 
             # FASE 1/4: Respaldo
             def backup_cb(idx, total, orig_name):
