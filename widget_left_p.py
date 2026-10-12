@@ -52,31 +52,30 @@ class IndividualTaggerPanel(QWidget):
         self.comment_check = QCheckBox("Comment:")
 
         # Inputs
-        self.title_edit = UtilityLineEdit()
+        self.title_edit = UtilityLineEdit(panel_ref=self)
         title_layout = QHBoxLayout()
         title_layout.setSpacing(4)
         title_layout.addWidget(self.title_edit)
 
-        self.artist_edit = UtilityLineEdit()
+        self.artist_edit = UtilityLineEdit(panel_ref=self)
         artist_layout = QHBoxLayout()
         artist_layout.addWidget(self.artist_edit)
 
-        self.album_edit = UtilityLineEdit()
+        self.album_edit = UtilityLineEdit(panel_ref=self)
 
-        self.year_edit = UtilityLineEdit()
+        self.year_edit = UtilityLineEdit(panel_ref=self)
         self.year_edit.setPlaceholderText("YYYY")
 
         self.date_edit = UtilityLineEdit(self, field_type="date")
         self.date_edit.setPlaceholderText("YYYY-MM-DD o YYYY-MM-DDTHH:MM:SSZ")
 
-        self.track_edit = UtilityLineEdit()
+        self.track_edit = UtilityLineEdit(panel_ref=self)
         self.track_edit.setPlaceholderText("00 o 00/00")
 
-        self.disc_edit = UtilityLineEdit()
+        self.disc_edit = UtilityLineEdit(panel_ref=self)
         self.disc_edit.setPlaceholderText("00/00, 000/000 o 00/000")
 
-        self.genre_line = UtilityLineEdit()
-
+        self.genre_line = UtilityLineEdit(panel_ref=self)
         self.genre_stack = QStackedWidget()
         self.genre_stack.addWidget(self.genre_line)
 
@@ -101,7 +100,7 @@ class IndividualTaggerPanel(QWidget):
         
         metadata_layout.addRow(self.cover_check, cover_layout)
 
-        self.comment_edit = UtilityTextEdit()
+        self.comment_edit = UtilityTextEdit(self, field_type="comment_edit", panel_ref=self)
         metadata_layout.addRow(self.comment_check, self.comment_edit)
         
         self.mtime_edit = QLineEdit()

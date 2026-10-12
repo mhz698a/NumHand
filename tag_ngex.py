@@ -221,13 +221,22 @@ def get_song_information(id_string) -> dict:
         raw_title = data.get("title") or f"song {song_id}"
         safe_filename = sanitize_filename(raw_title)
         
+        title = data.get("title")
+        if not title:
+            title = f"song {song_id}"
+            
+        artist = data.get("artist")
+        if not artist:
+            artist = "Unknown Artist"
+        
         return {
-            "title": data.get("title"),
-            "artist": data.get("artist"),
+            "title": title,
+            "artist": artist,
             "filename": safe_filename,
             "ng_id": song_id,
             "Exception": None
         }
+        
     except NGError as e:
         return {"Exception": str(e)}
     except Exception as e:

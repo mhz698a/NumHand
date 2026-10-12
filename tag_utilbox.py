@@ -1,6 +1,8 @@
 import re
-from PyQt6.QtWidgets import QLineEdit, QTextEdit, QMenu, QCalendarWidget, QDialog, QVBoxLayout, QPushButton
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtWidgets import QLineEdit, QTextEdit, QCalendarWidget, QDialog, QVBoxLayout, QPushButton, QApplication
+from PyQt6.QtCore import QDate, Qt, QTimer
+
+import tag_ngex
 
 class CalendarDialog(QDialog):
     def __init__(self, parent=None, initial_text=""):
@@ -32,6 +34,58 @@ class CalendarDialog(QDialog):
 
     def get_date(self):
         return self.calendar.selectedDate().toString("yyyy/MM/dd")
+
+class NGMetadataDialog(QDialog):
+    def __init__(self, parent=None, song_id="", panel_ref=None):
+        super().__init__(parent)
+        self.song_id = song_id
+        self.panel_ref = panel_ref
+        self.setWindowTitle("Newgrounds")
+        
+        # Sin botón de cerrar en la titlebar y no frameless
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        
+        layout = QVBoxLayout(self)
+        
+        # QTextEdit Readonly de fondo negro y texto verde con mayor altura para logs
+        self.log_edit = QTextEdit(self)
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setMinimumHeight(120)
+        self.log_edit.setStyleSheet("background-color: black; color: #00FF00; font-family: monospace;")
+        layout.addWidget(self.log_edit)
+        
+        # Botón Accept (oculto inicialmente, solo aparece en caso de falla)
+        self.accept_btn = QPushButton("Accept", self)
+        self.accept_btn.hide()
+        self.accept_btn.clicked.connect(self.accept)
+        layout.addWidget(self.accept_btn)
+        
+        # Ejecutar el proceso de obtención tras renderizar
+        QTimer.singleShot(100, self.run_process)
+
+    def run_process(self):
+        self.log_edit.setPlainText(f"Obteniendo metadatos para ID {self.song_id}...")
+        QApplication.processEvents()
+        
+        info = tag_ngex.get_song_information(self.song_id)
+        if info.get("Exception"):
+            err = info["Exception"]
+            self.log_edit.append(f"Error: {err}")
+            self.accept_btn.show()
+        else:
+            self.panel_ref.comment_check.setChecked(True)
+            title = info.get('title', '')
+            artist = info.get('artist', '')
+            res_text = f"Title: {title}\nArtist: {artist}\nID: {self.song_id}\nURL: https://www.newgrounds.com/audio/listen/{self.song_id}"
+
+            # Hacer append al campo de comentarios si ya tiene contenido
+            current_comment = self.panel_ref.comment_edit.toPlainText().strip()
+            if current_comment:
+                new_comment = f"{current_comment}\n{res_text}"
+            else:
+                new_comment = res_text
+            self.panel_ref.comment_edit.setPlainText(new_comment)
+            self.accept()
 
 
 class UtilityTextMixin:
@@ -184,6 +238,18 @@ class UtilityTextMixin:
                 if dlg.exec() == QDialog.DialogCode.Accepted:
                     self._set_text(dlg.get_date())
 
+        # --- Opciones de Newgrounds ---
+        def view_on_newgrounds():
+            val = self._get_selected_text().strip() if self._has_selection() else self._get_text().strip()
+            if val:
+                tag_ngex.open_id_page(val)
+
+        def add_newgrounds_metadata():
+            val = self._get_selected_text().strip() if self._has_selection() else self._get_text().strip()
+            if val.isdigit():
+                dlg = NGMetadataDialog(parent=self, song_id=val, panel_ref=self.panel_ref)
+                dlg.exec()
+
         # Construcción de acciones del menú
         act_clean_u = util_menu.addAction("Limpiar \"_\"")
         act_clean_u.setEnabled(not is_ro)
@@ -234,6 +300,15 @@ class UtilityTextMixin:
             act_date = util_menu.addAction("Colocar Fecha (YYYY/MM/DD)")
             act_date.setEnabled(not is_ro)
             act_date.triggered.connect(pick_date)
+        
+        util_menu.addSeparator()
+        
+        util_menu.addAction("Ver en Newgrounds").triggered.connect(view_on_newgrounds)
+
+        has_id_selected = self._has_selection() and self._get_selected_text().strip().isdigit()
+        act_add_ng = util_menu.addAction("Agregar Metadatos de Newgrounds")
+        act_add_ng.setEnabled(has_id_selected)
+        act_add_ng.triggered.connect(add_newgrounds_metadata)
 
 
 class UtilityLineEdit(QLineEdit, UtilityTextMixin):
