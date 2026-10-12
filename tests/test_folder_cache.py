@@ -68,6 +68,42 @@ class FolderCacheTests(unittest.TestCase):
 
         self.assertEqual(self.names(), ["new.txt"])
 
+    def test_same_size_external_edit_detected(self):
+        item = self.folder / "file.txt"
+        item.write_text("aaaa", encoding="utf-8")
+        self.names()
+        previous_dir_mtime = self.folder.stat().st_mtime_ns
+
+        item.write_text("bbbb", encoding="utf-8")
+        os.utime(self.folder, ns=(previous_dir_mtime, previous_dir_mtime))
+
+        # The directory mtime and aggregate byte size are unchanged; file mtime
+        # in the metadata fingerprint must still invalidate the cached snapshot.
+        self.assertEqual(self.names(), ["file.txt"])
+        with sqlite3.connect(self.cache.database_path) as connection:
+            row = connection.execute(
+                "SELECT fingerprint FROM folder_cache WHERE folder_path = ?",
+                (str(self.folder.resolve()),),
+            ).fetchone()
+        self.assertIn("file.txt", row[0])
+
+    def test_migrates_existing_database_schema(self):
+        legacy_db = self.root / "legacy.db"
+        with sqlite3.connect(legacy_db) as connection:
+            connection.execute("""
+                CREATE TABLE folder_cache (
+                    folder_path TEXT PRIMARY KEY,
+                    directory_mtime_ns INTEGER NOT NULL,
+                    files_json TEXT NOT NULL,
+                    last_access REAL NOT NULL
+                )
+            """)
+        migrated = FolderCache(legacy_db)
+        with sqlite3.connect(legacy_db) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(folder_cache)")}
+        self.assertTrue({"entry_count", "total_size_bytes", "fingerprint"}.issubset(columns))
+        self.assertEqual(migrated.list_files(self.folder), [])
+
     def test_excluded_temporary_files(self):
         (self.folder / "visible.txt").write_text("ok", encoding="utf-8")
         (self.folder / ".__file_manager__tmp.txt").write_text("tmp", encoding="utf-8")
