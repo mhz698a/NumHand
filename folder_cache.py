@@ -87,15 +87,15 @@ class FolderCache:
                 records.append((entry.name, info.st_size, info.st_mtime_ns))
                 total_size += info.st_size
         records.sort(key=lambda item: item[0].lower())
-        paths = [folder / item[0] for item in records]
+        records.sort(key=lambda item: (item[0].casefold(), item[0]))
         fingerprint = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
-        return paths, len(records), total_size, fingerprint
+        return records, len(records), total_size, fingerprint
 
     def list_files(self, folder, excluded_prefix=".__file_manager__"):
         folder = Path(folder).resolve()
         key = self._key(folder)
         directory_mtime_ns = folder.stat().st_mtime_ns
-        paths, entry_count, total_size, fingerprint = self._snapshot(folder, excluded_prefix)
+        records, entry_count, total_size, fingerprint = self._snapshot(folder, excluded_prefix)
         now = time.time()
 
         with self._connect() as connection:
@@ -121,6 +121,7 @@ class FolderCache:
                 except (TypeError, ValueError, json.JSONDecodeError):
                     pass
 
+            paths = [folder / item[0] for item in records]
             serialized = json.dumps([str(path) for path in paths], ensure_ascii=False)
             connection.execute("""
                 INSERT INTO folder_cache(
