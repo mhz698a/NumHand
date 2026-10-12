@@ -1,17 +1,19 @@
 import os
-import sys
 import subprocess
 import platform
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QMessageBox
+    QVBoxLayout, QMessageBox, QDockWidget
 )
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt
 
 from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
+from widget_left_p import IndividualTaggerPanel
+from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
 from sysmove import (
     check_folder_numbering,
@@ -20,6 +22,8 @@ from sysmove import (
     set_trash_folder,
 )
 from wutils_foobar2000 import check_foobar2000_playing_file
+from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
+from wstatusbar import setup_status_bar, show_status_message
 
 class WMain(QMainWindow):
 
@@ -31,15 +35,14 @@ class WMain(QMainWindow):
         self.folder = Path(folder) if folder else None
         self.model = FileModel()
         self.file_utils = FileUtils()
-        
-        if self.folder:
-            self.file_utils.load_folder(self, self.model)
 
         self.setWindowTitle("Numeric Handler Files")
-        self.resize(500, 700)
+        self.resize(1000, 700)
         self.build_ui()
         self.build_menubar()
         self.build_listview()
+        
+        setup_status_bar(self)
 
         if self.folder and self.folder.exists():
             self.file_utils.load_folder(self, self.model)
@@ -52,187 +55,101 @@ class WMain(QMainWindow):
         self.file_list = FileListView()
         v_layout.addWidget(self.file_list)
 
-    def build_listview(self):
-        self.file_list.setModel(
-            self.model
-        )
+        self.tagger_dock = QDockWidget("File Tags (Invididual)", self)
+        self.tagger_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tagger_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        
+        self.tagger_panel = IndividualTaggerPanel(self.tagger_dock)
+        self.tagger_dock.setWidget(self.tagger_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.tagger_dock)
+        
+        self.tagger_panel.apply_tags.clicked.connect(self._on_apply_tags_clicked)
 
+    def build_listview(self):
+        self.file_list.setModel(self.model)
         self.file_list.setItemDelegate(
             FileDelegate(self.file_list, main_window=self)
         )
+        self.file_list.selectionModel().selectionChanged.connect(
+            self._on_file_selection_changed
+        )
+    
+    def _on_apply_tags_clicked(self):
+        selected_indexes = self.file_list.selectionModel().selectedIndexes()
+        selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
+        
+        apply_panel_tags_to_selection(
+            self.tagger_panel,  selected_entries, 
+            status_callback=lambda msg: show_status_message(self, msg, 5000)
+        )
+        
+        update_tagger_panel(self.tagger_panel, selected_entries)
 
     def build_menubar(self):
+        def add_menu_items(menu, items):
+            for item in items:
+                if item is None:
+                    menu.addSeparator()
+                    continue
+                
+                text, slot, *shortcut = item
+                action = QAction(text, self)
+                if shortcut:
+                    action.setShortcut(shortcut[0])
+                action.triggered.connect(slot)
+                menu.addAction(action)
+
         barra_menu = self.menuBar()
 
-        menu_archivo = barra_menu.addMenu("&File")
-
-        ac_abrir_folder = QAction("&Select Folder", self)
-        ac_abrir_folder.setShortcut("Ctrl+O")
-        ac_abrir_folder.triggered.connect(
-            lambda: self.file_utils.select_folder(self, self.model)
-        )
-        menu_archivo.addAction(ac_abrir_folder)
-
-        ac_refresh_folder = QAction("&Refresh Loaded Folder", self)
-        ac_refresh_folder.setShortcut("F5")
-        ac_refresh_folder.triggered.connect(
-            lambda: self.file_utils.load_folder(self, self.model)
-        )
-        menu_archivo.addAction(ac_refresh_folder)
-
-        ac_opened_folder = QAction("&Open Selected Folder", self)
-        ac_opened_folder.setShortcut("Ctrl+P")
-        ac_opened_folder.triggered.connect(
-            lambda: self.openFolderExplorer()
-        )
-        menu_archivo.addAction(ac_opened_folder)
-
-        menu_archivo.addSeparator()
-
-        ac_apply_changes = QAction("&Apply changes", self)
-        ac_apply_changes.setShortcut("Ctrl+S")
-        ac_apply_changes.triggered.connect(
-            lambda: self.file_utils.apply_order(self, self.model)
-        )
-        menu_archivo.addAction(ac_apply_changes)
-
-        menu_archivo.addSeparator()
-
-        accion_salir = QAction("&Exit", self)
-        accion_salir.setShortcut("Alt+F4")
-        accion_salir.triggered.connect(self.close)
-        menu_archivo.addAction(accion_salir)
+        # ----------------------------------------
+        # Menú Archivo
+        # ----------------------------------------
+        add_menu_items(barra_menu.addMenu("&File"), [
+            ("&Open Oring Folder", lambda: self.file_utils.select_folder(self, self.model), "Ctrl+O"),
+            ("&Refresh Oring Folder", lambda: self.file_utils.load_folder(self, self.model), "F5"),
+            ("&Open Oring Folder", self.openFolderExplorer, "Ctrl+P"),
+            None,
+            ("&Apply changes", lambda: self.file_utils.apply_order(self, self.model), "Ctrl+S"),
+            ("Apply changes (Non-Enum)", lambda: apply_changes_non_enum(self, self.model)),
+            None,
+            ("&Exit", self.close, "Alt+F4"),
+        ])
 
         # ----------------------------------------
-
-        menu_editar = barra_menu.addMenu("&Edit")
-
-        ac_select_all = QAction("Select All", self)
-        ac_select_all.triggered.connect(
-            lambda: self.model.set_all_checked(True)
-        )
-        menu_editar.addAction(ac_select_all)
-
-        ac_unselect_all = QAction("Unselect All", self)
-        ac_unselect_all.triggered.connect(
-            lambda: self.model.set_all_checked(False)
-        )
-        menu_editar.addAction(ac_unselect_all)
-
-        ac_invert_selection = QAction("Invert Selection", self)
-        ac_invert_selection.triggered.connect(
-            self.model.invert_selection
-        )
-        menu_editar.addAction(ac_invert_selection)
-
-        menu_editar.addSeparator()
+        # Menú Editar
+        # ----------------------------------------
+        add_menu_items(barra_menu.addMenu("&Edit"), [
+            ("Select All", lambda: self.model.set_all_checked(True)),
+            ("Unselect All", lambda: self.model.set_all_checked(False)),
+            ("Invert Selection", self.model.invert_selection),
+            None,
+        ])
 
         # ----------------------------------------
+        # Menú Utilidades
+        # ----------------------------------------
+        add_menu_items(barra_menu.addMenu("&Utilidades"), [
+            ("Quit Numeration Folder", lambda: self.file_utils.reset_numeration_folder(self, self.model), "Ctrl+F5"),
+            ("Recover Failed Renames", lambda: self.file_utils.recover_failed_names(self, self.model), "Ctrl+Shift+R"),
+            None,
+            ("Convert to Hundreds Format", lambda: self.file_utils.format_hundreds(self, self.model)),
+            ("Integrate Files", lambda: self.file_utils.integrate_files(self, self.model)),
+            ("Check Foobar2000 Playing File", lambda: check_foobar2000_playing_file(self)),
+            None,
+            ("Move Selected to Other Folder", lambda: move_selected_files(self, self.model)),
+            ("Check Folder Enumeration", lambda: check_folder_numbering(self, self.model)),
+            ("Set Recicle Bin Folder", lambda: set_trash_folder(self)),
+            ("Move Selected to Recicle Bin Folder", lambda: move_selected_to_trash(self, self.model)),
+            None,
+            ("Copy Paths of selecction", self.copy_selected_paths),
+            ("Copy Filenames of selecction", self.copy_selected_names),
+        ])
 
-        menu_utilidades = barra_menu.addMenu("&Utilidades")
-
-        ac_desnum_folder = QAction("Reset Numeration Folder", self)
-        ac_desnum_folder.setShortcut("Ctrl+F5")
-        ac_desnum_folder.triggered.connect(
-            lambda: self.file_utils.reset_numeration_folder(self, self.model)
-        )
-        menu_utilidades.addAction(ac_desnum_folder)
-
-        ac_recover_failed = QAction("Recover failed renames", self)
-        ac_recover_failed.setShortcut("Ctrl+Shift+R")
-        ac_recover_failed.triggered.connect(
-            lambda: self.file_utils.recover_failed_names(self, self.model)
-        )
-        menu_utilidades.addAction(ac_recover_failed)
-
-        menu_utilidades.addSeparator()
-
-        ac_format_hundreds = QAction("Convert to hundreds format", self)
-        ac_format_hundreds.triggered.connect(
-            lambda: self.file_utils.format_hundreds(self, self.model)
-        )
-        menu_utilidades.addAction(ac_format_hundreds)
-
-        ac_integrate_files = QAction("Integrate Files", self)
-        ac_integrate_files.triggered.connect(
-            lambda: self.file_utils.integrate_files(self, self.model)
-        )
-        menu_utilidades.addAction(ac_integrate_files)
-
-        ac_check_foobar2000 = QAction("Check foobar2000 playing file", self)
-        ac_check_foobar2000.triggered.connect(
-            lambda: check_foobar2000_playing_file(self)
-        )
-        menu_utilidades.addAction(ac_check_foobar2000)
-
-        menu_utilidades.addSeparator()
-
-        ac_move_selected = QAction(
-            "Mover a otra carpeta los archivos seleccionados",
-            self
-        )
-        ac_move_selected.triggered.connect(
-            lambda: move_selected_files(self, self.model)
-        )
-        menu_utilidades.addAction(ac_move_selected)
-
-        ac_check_numbering = QAction(
-            "Comprobar Numeración de esta carpeta",
-            self,
-        )
-        ac_check_numbering.triggered.connect(
-            lambda: check_folder_numbering(self, self.model)
-        )
-        menu_utilidades.addAction(ac_check_numbering)
-
-        ac_set_trash = QAction("Establecer ruta de papelera", self)
-        ac_set_trash.triggered.connect(lambda: set_trash_folder(self))
-        menu_utilidades.addAction(ac_set_trash)
-
-        ac_move_trash = QAction("Mover a papelera los seleccionados", self)
-        ac_move_trash.triggered.connect(
-            lambda: move_selected_to_trash(self, self.model)
-        )
-        menu_utilidades.addAction(ac_move_trash)
-
-        menu_utilidades.addSeparator()
-
-        ac_copy_paths = QAction("Copiar rutas de archivos seleccionados", self)
-        ac_copy_paths.triggered.connect(self.copy_selected_paths)
-        menu_utilidades.addAction(ac_copy_paths)
-
-        ac_copy_names = QAction("Copiar nombres de archivos seleccionados", self)
-        ac_copy_names.triggered.connect(self.copy_selected_names)
-        menu_utilidades.addAction(ac_copy_names)
-
-
-    def check_foobar2000_playing_file(self):
-        from wutils_foobar2000 import is_file_from_list_playing
-
-        try:
-            is_playing = is_file_from_list_playing(
-                file.path for file in self.model.files
-            )
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "foobar2000",
-                f"Could not connect to foobar2000: {exc}"
-            )
-            return
-
-        if is_playing:
-            QMessageBox.information(
-                self,
-                "foobar2000",
-                "foobar2000 is playing a file from the loaded folder."
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "foobar2000",
-                "foobar2000 is not playing a file from the loaded folder."
-            )
+    def _on_file_selection_changed(self, selected, deselected):
+        """Se ejecuta cada vez que el usuario selecciona o desselecciona items en la lista."""
+        selected_indexes = self.file_list.selectionModel().selectedIndexes()
+        selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
+        update_tagger_panel(self.tagger_panel, selected_entries)
 
     def copy_selected_paths(self):
         selected_files = self.model.checked_files()

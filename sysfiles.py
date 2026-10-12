@@ -22,7 +22,9 @@ class FileUtils:
 
     def select_folder(self, parent, model):
         folder = QFileDialog.getExistingDirectory(
-            parent, "Seleccionar carpeta"
+            parent, 
+            "Seleccionar carpeta", 
+            str(parent.folder) if parent.folder else None
         )
         if not folder:
             return
