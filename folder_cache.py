@@ -103,6 +103,14 @@ class FolderCache:
         timestamp granularity is coarse.
         """
         folder = Path(folder).resolve()
+        # Stamp the directory so application-managed changes leave an explicit
+        # modification-time signal, even when the filesystem timestamp would
+        # otherwise not advance at its available resolution.
+        try:
+            os.utime(folder, None)
+        except OSError:
+            # Still refresh the cache if touching the directory is unsupported.
+            pass
         key = self._key(folder)
         with self._connect() as connection:
             connection.execute("DELETE FROM folder_cache WHERE folder_path = ?", (key,))
