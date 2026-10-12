@@ -18,11 +18,11 @@ def _default_cache_path():
 
 
 class FolderCache:
-    """Caches a folder's immediate file list keyed by its normalized absolute path.
+    """Cache direct files while validating directory and file metadata on reads.
 
-    Directory mtime is checked on every read. When it changes, the listing is
-    rebuilt, so additions, removals and renames made outside the application
-    are reflected on the next open/refresh.
+    The validation signature includes directory mtime, entry count, aggregate
+    file size, and each visible file's name/size/mtime. The latter catches
+    common external edits even when a directory timestamp is preserved.
     """
 
     def __init__(self, database_path=None):
@@ -34,9 +34,25 @@ class FolderCache:
                     folder_path TEXT PRIMARY KEY,
                     directory_mtime_ns INTEGER NOT NULL,
                     files_json TEXT NOT NULL,
-                    last_access REAL NOT NULL
+                    last_access REAL NOT NULL,
+                    entry_count INTEGER NOT NULL DEFAULT 0,
+                    total_size_bytes INTEGER NOT NULL DEFAULT 0,
+                    fingerprint TEXT NOT NULL DEFAULT ''
                 )
             """)
+            # Upgrade databases created by earlier versions without discarding cache data.
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(folder_cache)")
+            }
+            for name, declaration in (
+                ("entry_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("total_size_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                ("fingerprint", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE folder_cache ADD COLUMN {name} {declaration}"
+                    )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_folder_cache_last_access "
                 "ON folder_cache(last_access)"
@@ -52,64 +68,86 @@ class FolderCache:
     def _key(folder):
         return str(Path(folder).resolve())
 
+    @staticmethod
+    def _snapshot(folder, excluded_prefix):
+        """Return visible files and a stable metadata signature."""
+        records = []
+        total_size = 0
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if entry.name.startswith(excluded_prefix):
+                    continue
+                try:
+                    if not entry.is_file(follow_symlinks=True):
+                        continue
+                    info = entry.stat(follow_symlinks=True)
+                except (FileNotFoundError, PermissionError, OSError):
+                    # Entries can disappear while an external process is editing.
+                    continue
+                records.append((entry.name, info.st_size, info.st_mtime_ns))
+                total_size += info.st_size
+        records.sort(key=lambda item: item[0].lower())
+        paths = [folder / item[0] for item in records]
+        fingerprint = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
+        return paths, len(records), total_size, fingerprint
+
     def list_files(self, folder, excluded_prefix=".__file_manager__"):
         folder = Path(folder).resolve()
-        stat = folder.stat()
-        directory_mtime_ns = stat.st_mtime_ns
         key = self._key(folder)
+        directory_mtime_ns = folder.stat().st_mtime_ns
+        paths, entry_count, total_size, fingerprint = self._snapshot(folder, excluded_prefix)
         now = time.time()
 
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT directory_mtime_ns, files_json FROM folder_cache "
-                "WHERE folder_path = ?", (key,)
+                "SELECT directory_mtime_ns, files_json, entry_count, "
+                "total_size_bytes, fingerprint FROM folder_cache WHERE folder_path = ?",
+                (key,),
             ).fetchone()
-            if row and row[0] == directory_mtime_ns:
+            if row and (
+                row[0] == directory_mtime_ns
+                and row[2] == entry_count
+                and row[3] == total_size
+                and row[4] == fingerprint
+            ):
                 try:
-                    paths = [Path(item) for item in json.loads(row[1])]
-                    if all(path.parent == folder for path in paths):
+                    cached_paths = [Path(item) for item in json.loads(row[1])]
+                    if all(path.parent == folder for path in cached_paths):
                         connection.execute(
                             "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
-                            (now, key)
+                            (now, key),
                         )
-                        return paths
+                        return cached_paths
                 except (TypeError, ValueError, json.JSONDecodeError):
                     pass
 
-        paths = sorted(
-            (
-                entry for entry in folder.iterdir()
-                if entry.is_file() and not entry.name.startswith(excluded_prefix)
-            ),
-            key=lambda path: path.name.lower()
-        )
-        serialized = json.dumps([str(path) for path in paths], ensure_ascii=False)
-        with self._connect() as connection:
+            serialized = json.dumps([str(path) for path in paths], ensure_ascii=False)
             connection.execute("""
-                INSERT INTO folder_cache(folder_path, directory_mtime_ns, files_json, last_access)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO folder_cache(
+                    folder_path, directory_mtime_ns, files_json, last_access,
+                    entry_count, total_size_bytes, fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(folder_path) DO UPDATE SET
                     directory_mtime_ns = excluded.directory_mtime_ns,
                     files_json = excluded.files_json,
-                    last_access = excluded.last_access
-            """, (key, directory_mtime_ns, serialized, now))
+                    last_access = excluded.last_access,
+                    entry_count = excluded.entry_count,
+                    total_size_bytes = excluded.total_size_bytes,
+                    fingerprint = excluded.fingerprint
+            """, (
+                key, directory_mtime_ns, serialized, now,
+                entry_count, total_size, fingerprint,
+            ))
         return paths
 
     def sync_folder(self, folder, excluded_prefix=".__file_manager__"):
-        """Rebuild and persist the listing after an application-managed change.
-
-        Directory entry changes normally update the filesystem mtime. Removing
-        the old row first also guarantees a fresh listing on filesystems whose
-        timestamp granularity is coarse.
-        """
+        """Refresh the persisted listing after an application-managed change."""
         folder = Path(folder).resolve()
-        # Stamp the directory so application-managed changes leave an explicit
-        # modification-time signal, even when the filesystem timestamp would
-        # otherwise not advance at its available resolution.
+        # Explicitly stamp successful changes where filesystem timestamp precision permits.
         try:
             os.utime(folder, None)
         except OSError:
-            # Still refresh the cache if touching the directory is unsupported.
+            # Cache refresh remains useful on read-only/unsupported filesystems.
             pass
         key = self._key(folder)
         with self._connect() as connection:
