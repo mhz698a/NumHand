@@ -86,7 +86,6 @@ class FolderCache:
                     continue
                 records.append((entry.name, info.st_size, info.st_mtime_ns))
                 total_size += info.st_size
-        records.sort(key=lambda item: item[0].lower())
         records.sort(key=lambda item: (item[0].casefold(), item[0]))
         fingerprint = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
         return records, len(records), total_size, fingerprint
