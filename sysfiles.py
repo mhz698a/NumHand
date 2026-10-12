@@ -1,5 +1,6 @@
 import uuid
 import json
+import logging
 import re
 import time
 
@@ -23,9 +24,15 @@ class FileUtils:
         self.folder_cache = FolderCache()
 
     def sync_folder_cache(self, folder):
-        """Persist the current directory listing after a successful mutation."""
-        if folder and Path(folder).is_dir():
-            self.folder_cache.sync_folder(folder, excluded_prefix=TEMP_PREFIX)
+        """Refresh cache after a mutation without turning cache failures into file-operation failures."""
+        if not folder:
+            return
+        try:
+            path = Path(folder)
+            if path.is_dir():
+                self.folder_cache.sync_folder(path, excluded_prefix=TEMP_PREFIX)
+        except (OSError, RuntimeError, ValueError) as error:
+            logging.warning("No se pudo sincronizar la cache de %s: %s", folder, error)
 
     def select_folder(self, parent, model):
         folder = QFileDialog.getExistingDirectory(
