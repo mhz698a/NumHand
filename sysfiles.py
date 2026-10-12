@@ -53,17 +53,19 @@ class FileUtils:
         progress_dialog = DualProgressDialog("Cargando carpeta", parent)
         progress_dialog.show()
 
+        # Mostrar resultados progresivamente desde el inicio de la carga.
+        model.clear_files()
         task = LoadFolderTask(parent.folder, self)
 
-        def on_finished(files):
+        def on_finished(files_loaded):
             progress_dialog.close()
-            model.set_files(files)
 
         def on_error(err_msg):
             progress_dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
         task.signals.progress.connect(progress_dialog.update_progress)
+        task.signals.file_loaded.connect(model.add_file)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
