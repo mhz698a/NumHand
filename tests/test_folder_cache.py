@@ -73,8 +73,11 @@ class FolderCacheTests(unittest.TestCase):
         item.write_text("aaaa", encoding="utf-8")
         self.names()
         previous_dir_mtime = self.folder.stat().st_mtime_ns
+        previous_file_mtime = item.stat().st_mtime_ns
 
         item.write_text("bbbb", encoding="utf-8")
+        changed_file_mtime = previous_file_mtime + 2_000_000_000
+        os.utime(item, ns=(changed_file_mtime, changed_file_mtime))
         os.utime(self.folder, ns=(previous_dir_mtime, previous_dir_mtime))
 
         # The directory mtime and aggregate byte size are unchanged; file mtime
