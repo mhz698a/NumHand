@@ -35,18 +35,10 @@ class LoadFolderTask(QRunnable):
                     return
 
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-            all_entries = list(self.folder_path.iterdir())
-            total = len(all_entries)
-
-            files = []
-            for idx, entry in enumerate(all_entries, start=1):
-                if entry.is_file() and not entry.name.startswith(TEMP_PREFIX):
-                    files.append(entry)
-                if total > 0 and (idx % 10 == 0 or idx == total):
-                    self.signals.progress.emit(idx, total, f"Leyendo archivo {idx} de {total}...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-
-            self.signals.progress.emit(total, total, "Ordenando archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-            files.sort(key=lambda file: file.name.lower())
+            self.signals.progress.emit(0, 0, "Consultando cache de archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
+            files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
+            total = len(files)
+            self.signals.progress.emit(total, total, f"{total} archivos listos.", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
 
             self.signals.finished.emit(files)
         except Exception as e:

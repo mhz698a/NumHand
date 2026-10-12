@@ -15,6 +15,7 @@ from widget_filehand import FileDelegate
 from widget_left_p import IndividualTaggerPanel
 from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
+from folder_cache import FolderCache
 from sysmove import (
     check_folder_numbering,
     move_selected_files,
@@ -35,6 +36,7 @@ class WMain(QMainWindow):
         self.folder = Path(folder) if folder else None
         self.model = FileModel()
         self.file_utils = FileUtils()
+        self.folder_cache = FolderCache()
 
         self.setWindowTitle("Numeric Handler Files")
         self.resize(1000, 700)
@@ -135,6 +137,7 @@ class WMain(QMainWindow):
             ("Convert to Hundreds Format", lambda: self.file_utils.format_hundreds(self, self.model)),
             ("Integrate Files", lambda: self.file_utils.integrate_files(self, self.model)),
             ("Check Foobar2000 Playing File", lambda: check_foobar2000_playing_file(self)),
+            ("Limpiar cache de hace más de 30 días", self.clear_old_folder_cache),
             None,
             ("Move Selected to Other Folder", lambda: move_selected_files(self, self.model)),
             ("Check Folder Enumeration", lambda: check_folder_numbering(self, self.model)),
@@ -144,6 +147,17 @@ class WMain(QMainWindow):
             ("Copy Paths of selecction", self.copy_selected_paths),
             ("Copy Filenames of selecction", self.copy_selected_names),
         ])
+
+    def clear_old_folder_cache(self):
+        try:
+            deleted = self.folder_cache.clear_older_than(30)
+            QMessageBox.information(
+                self,
+                "Cache de carpetas",
+                f"Se eliminaron {deleted} entradas de cache sin uso durante más de 30 días."
+            )
+        except Exception as error:
+            QMessageBox.critical(self, "Error de cache", str(error))
 
     def _on_file_selection_changed(self, selected, deselected):
         """Se ejecuta cada vez que el usuario selecciona o desselecciona items en la lista."""
