@@ -197,6 +197,7 @@ def apply_changes_non_enum(parent, model):
 
     def on_finished():
         progress_dialog.close()
+        parent.file_utils.sync_folder_cache(parent.folder)
         model.layoutChanged.emit()
 
     def on_error(message):

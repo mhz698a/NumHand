@@ -1,5 +1,6 @@
 import uuid
 import json
+import logging
 import re
 import time
 
@@ -19,6 +20,19 @@ class FileUtils:
 
     def __init__(self):
         self.thread_pool = QThreadPool.globalInstance()
+        from folder_cache import FolderCache
+        self.folder_cache = FolderCache()
+
+    def sync_folder_cache(self, folder):
+        """Refresh cache after a mutation without turning cache failures into file-operation failures."""
+        if not folder:
+            return
+        try:
+            path = Path(folder)
+            if path.is_dir():
+                self.folder_cache.sync_folder(path, excluded_prefix=TEMP_PREFIX)
+        except Exception as error:
+            logging.warning("No se pudo sincronizar la cache de %s: %s", folder, error)
 
     def select_folder(self, parent, model):
         folder = QFileDialog.getExistingDirectory(
@@ -86,6 +100,7 @@ class FileUtils:
             # La operación física terminó correctamente. A partir de este
             # momento los nombres y posiciones actuales pasan a ser la base
             # confirmada y los tonos pendientes desaparecen.
+            self.sync_folder_cache(parent.folder)
             for row, file in enumerate(model.files):
                 file.original_path = file.path
                 file.original_name = file.path.name
@@ -206,6 +221,7 @@ class FileUtils:
         def on_finished(updated_files):
             progress_dialog.close()
             model.set_files(updated_files)
+            self.sync_folder_cache(parent.folder)
             QMessageBox.information(parent, "Éxito", "Archivos integrados correctamente.")
 
         def on_error(err_msg):
@@ -264,6 +280,7 @@ class FileUtils:
 
         def on_finished(result):
             progress_dialog.close()
+            self.sync_folder_cache(parent.folder)
             model.layoutChanged.emit()
 
         def on_error(err_msg):
@@ -308,6 +325,7 @@ class FileUtils:
         def on_finished(updated_files):
             progress_dialog.close()
             model.set_files(updated_files)
+            self.sync_folder_cache(parent.folder)
 
         def on_error(err_msg):
             progress_dialog.close()
@@ -387,6 +405,7 @@ class FileUtils:
             # IMPORTANTE: clean_name debe incluir la extensión para que apply_order funcione correctamente
             file_entry.clean_name = f"{clean_base_for_model}{suffix}"
             
+            self.sync_folder_cache(old_path.parent)
             model.dataChanged.emit(model.index(row, 0), model.index(row, 0))
             return True
         

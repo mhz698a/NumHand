@@ -610,6 +610,8 @@ def move_selected_files(parent, model):
 
     def on_finished():
         progress_dialog.close()
+        parent.file_utils.sync_folder_cache(source_folder)
+        parent.file_utils.sync_folder_cache(target_folder)
         model.set_all_checked(False)
         parent.file_utils.load_folder(parent, model)
         if reorganize_destination:
@@ -760,6 +762,8 @@ def move_selected_to_trash(parent, model):
 
     def on_finished():
         progress_dialog.close()
+        parent.file_utils.sync_folder_cache(source_folder)
+        parent.file_utils.sync_folder_cache(trash_folder)
         model.set_all_checked(False)
         parent.file_utils.load_folder(parent, model)
         QMessageBox.information(
