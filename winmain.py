@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt
 from model import FileModel
 from wfilelist_view import FileListView
 from widget_filehand import FileDelegate
-from widget_left_p import IndividualTaggerPanel
+from widget_right_p import IndividualTaggerPanel
 from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
 from sys_folder_cache import FolderCache
