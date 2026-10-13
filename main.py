@@ -26,8 +26,12 @@ if __name__ == "__main__":
 
     if path_obj.is_dir():
         path_input = str(path_obj)
+        initial_file = None
+        no_select_playing = args.no_select_playing
     else:
         path_input = str(path_obj.parent)
+        initial_file = str(path_obj)
+        no_select_playing = True
 
     APP_DIR = Path(__file__).resolve().parent.as_posix()
     ICON_PATH = f"{APP_DIR}/assets/handicon.png"

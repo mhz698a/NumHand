@@ -30,7 +30,7 @@ class WMain(QMainWindow):
 
     BACKUP_FILENAME = ".__file_manager_backup__.json"
 
-    def __init__(self, folder=None, select_playing=True):
+    def __init__(self, folder=None, select_playing=True, initial_file=None):
         super().__init__()
 
         self.folder = Path(folder) if folder else None
@@ -47,9 +47,15 @@ class WMain(QMainWindow):
         setup_status_bar(self)
 
         if self.folder and self.folder.exists():
-            if select_playing:
-                # La carga de la carpeta es asíncrona: seleccionar únicamente
-                # cuando el modelo ya recibió todos los archivos.
+            if initial_file:
+                # Si se pasó un archivo directamente, se selecciona omitiendo foobar2000
+                self.file_utils.load_folder(
+                    self,
+                    self.model,
+                    on_loaded=lambda: select_foobar2000_playing_file(self, current_path=initial_file),
+                )
+            elif select_playing:
+                # Comportamiento normal con foobar2000
                 self.file_utils.load_folder(
                     self,
                     self.model,
