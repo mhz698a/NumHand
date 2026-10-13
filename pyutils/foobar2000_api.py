@@ -25,6 +25,7 @@ class Foobar2000Api:
         return response.json()
 
     def player(self) -> dict[str, Any]:
+        """Consulta específica para seleccionar el archivo en reproducción."""
         return self._get("/api/player")
 
     def player_col_parm(self, columns: list[str] | None = None) -> dict[str, Any]:
@@ -50,8 +51,6 @@ class Foobar2000Api:
 
     def current_path(self) -> str | None:
         player = self.player().get("player", {})
-        if player.get("playback") != "playing":
-            return None
 
         item = player.get("activeItem")
         if not item:
@@ -75,7 +74,7 @@ class Foobar2000Api:
         return columns[0] if columns else None
 
     def current_path_playbackState(self) -> str | None:
-        # Consulta específica para seleccionar el archivo en reproducción.
+        """Consulta específica para seleccionar el archivo en reproducción."""
         player = self.player_col_parm(columns=["%path%"]).get("player", {})
         if player.get("playbackState") != "playing":
             return None
