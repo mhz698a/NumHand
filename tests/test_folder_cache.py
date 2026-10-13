@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from folder_cache import FolderCache
+from sys_folder_cache import FolderCache
 
 
 class FolderCacheTests(unittest.TestCase):

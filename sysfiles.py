@@ -21,7 +21,7 @@ class FileUtils:
 
     def __init__(self):
         self.thread_pool = QThreadPool.globalInstance()
-        from folder_cache import FolderCache
+        from sys_folder_cache import FolderCache
         self.folder_cache = FolderCache()
 
     def sync_folder_cache(self, folder):

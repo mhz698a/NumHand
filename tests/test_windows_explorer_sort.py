@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from folder_cache import FolderCache, windows_explorer_sort_key
+from sys_folder_cache import FolderCache, windows_explorer_sort_key
 
 
 class WindowsExplorerSortTests(unittest.TestCase):
