@@ -19,7 +19,7 @@ jobs:
       - name: Install system GUI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1-mesa-glx libxkbcommon-x11-0 libxcb-cursor0
+          sudo apt-get install -y libegl1 libgl1 libglx0 libxkbcommon-x11-0 libxcb-cursor0
 
       - uses: actions/setup-python@v5
         with:
