@@ -142,6 +142,25 @@ class IndividualTaggerPanel(QWidget):
         self.pending_cover_bytes = None
         self.pending_remove_cover = False
         self.common_cover_bytes = None
+        
+        has_selection = bool(entries)
+        
+        # Lista de todos los checkboxes del panel
+        checkboxes = [
+            self.title_check, self.artist_check, self.album_check,
+            self.year_check, self.date_check, self.track_check,
+            self.disc_check, self.genre_check, self.cover_check,
+            self.comment_check
+        ]
+
+        # Activar o desactivar checkboxes según si hay archivos seleccionados
+        for chk in checkboxes:
+            chk.setEnabled(has_selection)
+            if not has_selection:
+                chk.setChecked(False)
+
+        # Activar o desactivar el botón Apply Tags
+        self.apply_tags.setEnabled(has_selection)
 
         if not entries:
             self.filename_field_rom.clear()

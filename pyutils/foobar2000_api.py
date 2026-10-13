@@ -33,13 +33,8 @@ class Foobar2000Api:
         return self._get("/api/player", params=params)
 
 
-    def playlist_items(
-        self,
-        playlist_id: int,
-        start: int = 0,
-        end: int = 20000,
-        columns: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    def playlist_items(self, playlist_id: int, start: int = 0, end: int = 20000,
+                       columns: list[str] | None = None,) -> list[dict[str, Any]]:
         payload = self._get(
             f"/api/playlists/{playlist_id}/items/{start}:{end}",
             params={"columns": columns or ["%path%"]},
@@ -51,6 +46,8 @@ class Foobar2000Api:
 
     def current_path(self) -> str | None:
         player = self.player().get("player", {})
+        if player.get("playbackState") not in ("playing", "paused", "pause"):
+            return None
 
         item = player.get("activeItem")
         if not item:
@@ -76,7 +73,7 @@ class Foobar2000Api:
     def current_path_playbackState(self) -> str | None:
         """Consulta específica para seleccionar el archivo en reproducción."""
         player = self.player_col_parm(columns=["%path%"]).get("player", {})
-        if player.get("playbackState") != "playing":
+        if player.get("playbackState") not in ("playing", "paused", "pause"):
             return None
 
         active_item = player.get("activeItem") or {}

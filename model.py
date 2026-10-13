@@ -24,7 +24,13 @@ class FileEntry:
         self.original_row = None
         self.pending_name = None
         
-        self.metadata = read_file_tags(self.path)
+        self.__metadata = None
+    
+    @property
+    def metadata(self):
+        if self.__metadata is None:
+            self.__metadata = read_file_tags(self.path)
+        return self.__metadata
 
 
 class FileModel(QAbstractListModel):
