@@ -32,6 +32,10 @@ class FileEntry:
             self.__metadata = read_file_tags(self.path)
         return self.__metadata
 
+    @metadata.setter
+    def metadata(self, value):
+        self.__metadata = value
+
 
 class FileModel(QAbstractListModel):
 
