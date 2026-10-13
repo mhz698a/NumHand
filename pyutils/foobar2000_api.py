@@ -5,9 +5,9 @@ and UI behavior belong to the caller.
 """
 from __future__ import annotations
 
-from typing import Any
-
+from typing import Dict, Any, Optional
 import requests
+from requests.exceptions import HTTPError, Timeout, RequestException
 
 
 class Foobar2000Api:
@@ -65,3 +65,80 @@ class Foobar2000Api:
 
         columns = items[0].get("columns", [])
         return columns[0] if columns else None
+
+    def _post(self, path: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        """Realiza una petición POST específica para la API de Beefweb.
+        
+        Args:
+            path: Ruta del endpoint (ej. '/api/playback/next').
+            **kwargs: Argumentos adicionales para requests.post (json, headers, etc.).
+            
+        Returns:
+            Dict con la respuesta JSON si existe contenido, o None si es 204 No Content.
+            
+        Raises:
+            HTTPError: Si el servidor responde con un código de error (4xx o 5xx).
+            Timeout: Si la petición excede el tiempo límite configurado.
+        """
+        url = f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
+        
+        try:
+            response = requests.post(
+                url,
+                timeout=self.timeout,
+                **kwargs
+            )
+            response.raise_for_status()
+            
+            # 204 No Content o cuerpo vacío
+            if response.status_code == 204 or not response.content:
+                return None
+                
+            return response.json()
+
+        except HTTPError as http_err:
+            # Aquí puedes loggear o personalizar el error según lo que devuelva Beefweb
+            print(f"Error HTTP en POST {path}: {http_err} - Respuesta: {response.text}")
+            raise
+        except Timeout as timeout_err:
+            print(f"Timeout agotado ({self.timeout}s) en POST {path}")
+            raise
+        except RequestException as req_err:
+            print(f"Error de red inesperado en POST {path}: {req_err}")
+            raise
+
+    def stop(self) -> None:
+      """Detiene la reproducción actual."""
+      self._post("/api/player/stop")
+
+    def remove_playlist_items(self, playlist_id: str | int, indices: list[int]) -> None:
+      """Elimina ítems específicos de una playlist según sus índices."""
+      self._post(
+          f"/api/playlists/{playlist_id}/items/remove",
+          json={"items": indices},
+      )
+
+    def add_playlist_items(self, playlist_id: str | int, paths: list[str]) -> None:
+      """Agrega nuevos archivos a una playlist."""
+      self._post(
+          f"/api/playlists/{playlist_id}/items/add",
+          json={"items": paths},
+      )
+
+    def sort_playlist(self, playlist_id: str | int, expression: str = "%path%") -> None:
+      """Ordena los elementos de la playlist según una expresión (ej. '%path%')."""
+      self._post(
+          f"/api/playlists/{playlist_id}/items/sort",
+          json={"by": expression},
+      )
+
+    def play_item(self, playlist_id: str | int, index: int) -> None:
+      """Reproduce un elemento específico de una playlist por su índice."""
+      self._post(f"/api/player/play/{playlist_id}/{index}")
+
+    def set_position(self, position_seconds: float) -> None:
+      """Establece la posición actual de reproducción en segundos (Seeking)."""
+      self._post(
+          "/api/player",
+          json={"position": position_seconds},
+      )
