@@ -22,7 +22,7 @@ from sysmove import (
     move_selected_to_trash,
     set_trash_folder,
 )
-from wutils_foobar2000 import check_foobar2000_playing_file
+from wutils_foobar2000 import check_foobar2000_playing_file, select_foobar2000_playing_file
 from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
 from wstatusbar import setup_status_bar, show_status_message
 
@@ -30,7 +30,7 @@ class WMain(QMainWindow):
 
     BACKUP_FILENAME = ".__file_manager_backup__.json"
 
-    def __init__(self, folder=None):
+    def __init__(self, folder=None, select_playing=True):
         super().__init__()
 
         self.folder = Path(folder) if folder else None
@@ -48,6 +48,8 @@ class WMain(QMainWindow):
 
         if self.folder and self.folder.exists():
             self.file_utils.load_folder(self, self.model)
+            if select_playing:
+                select_foobar2000_playing_file(self)
 
     def build_ui(self):
         l_central = QWidget()

@@ -45,6 +45,9 @@ class Foobar2000Api:
 
     def current_path(self) -> str | None:
         player = self.player().get("player", {})
+        if player.get("playback") != "playing":
+            return None
+
         item = player.get("activeItem")
         if not item:
             return None
