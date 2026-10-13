@@ -25,7 +25,13 @@ class Foobar2000Api:
         return response.json()
 
     def player(self) -> dict[str, Any]:
+        """Consulta específica para seleccionar el archivo en reproducción."""
         return self._get("/api/player")
+
+    def player_col_parm(self, columns: list[str] | None = None) -> dict[str, Any]:
+        params = {"columns": columns} if columns else {}
+        return self._get("/api/player", params=params)
+
 
     def playlist_items(
         self,
@@ -45,6 +51,7 @@ class Foobar2000Api:
 
     def current_path(self) -> str | None:
         player = self.player().get("player", {})
+
         item = player.get("activeItem")
         if not item:
             return None
@@ -65,6 +72,16 @@ class Foobar2000Api:
 
         columns = items[0].get("columns", [])
         return columns[0] if columns else None
+
+    def current_path_playbackState(self) -> str | None:
+        """Consulta específica para seleccionar el archivo en reproducción."""
+        player = self.player_col_parm(columns=["%path%"]).get("player", {})
+        if player.get("playbackState") != "playing":
+            return None
+
+        active_item = player.get("activeItem") or {}
+        columns = active_item.get("columns") or []
+        return columns[0] if columns and columns[0] else None
 
     def _post(self, path: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """Realiza una petición POST específica para la API de Beefweb.

@@ -47,7 +47,8 @@ class FileUtils:
         parent.folder = Path(folder)
         self.load_folder(parent, model)
 
-    def load_folder(self, parent, model):
+    def load_folder(self, parent, model, on_loaded=None):
+        """Carga la carpeta en segundo plano y ejecuta on_loaded al terminar."""
         if not parent.folder or not parent.folder.exists():
             return
 
@@ -60,6 +61,8 @@ class FileUtils:
 
         def on_finished(files_loaded):
             progress_dialog.close()
+            if on_loaded is not None:
+                on_loaded()
 
         def on_error(err_msg):
             progress_dialog.close()
