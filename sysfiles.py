@@ -12,7 +12,8 @@ import syswall
 
 from sysprog import DualProgressDialog
 from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
-from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
+from sysutils import LoadFolderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
+from sys_engine_dest import ApplyOrderTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 

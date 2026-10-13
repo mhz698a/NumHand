@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from sysutils import build_apply_order_plan
+from sys_engine_dest import build_apply_order_listfiles
 
 
 class ApplyOrderPlanTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class ApplyOrderPlanTests(unittest.TestCase):
         renamed = self.make_entry("02. old.txt", "new.txt")
         unnumbered = self.make_entry("notes.txt", "notes.txt")
 
-        plan = build_apply_order_plan(
+        plan = build_apply_order_listfiles(
             [unchanged, renamed, unnumbered], self.folder, "{:02d}. "
         )
 
