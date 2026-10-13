@@ -1,6 +1,9 @@
 from datetime import datetime
+import ntpath
+import time
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QTextEdit
+from pyutils.foobar2000_api import Foobar2000Api
 from tag_writer import write_file_tags
 from tag_reader import read_file_tags
 from syswall import get_locking_processes
@@ -100,7 +103,43 @@ def apply_panel_tags_to_selection(panel, selected_entries: list, status_callback
 
     if not tags_to_apply and not apply_cover:
         return
+    
+    # --- 1. INTEGRACIÓN FOOBAR2000: GUARDAR ESTADO Y DETENER SI SE ESTÁ REPRODUCIENDO ---
+    fb_api = None
+    have_been_playing = False
+    saved_playlist_id = None
+    saved_index = None
+    saved_position = 0.0
+    playing_path = None
+    
+    try:
+        fb_api = Foobar2000Api()
+        player_data = fb_api.player()
+        player_info = player_data.get("player", {})
+        active_item = player_info.get("activeItem")
+        
+        if active_item:
+            saved_playlist_id = active_item.get("playlistId")
+            saved_index = active_item.get("index")
+            saved_position = active_item.get("position", 0.0)
+            playing_path = fb_api.current_path()
+    except Exception:
+        fb_api = None
+        
+    # Verificar si el archivo actual en reproducción está entre los seleccionados a editar
+    target_paths = {ntpath.normcase(ntpath.normpath(str(entry.path))) for entry in selected_entries}
 
+    if playing_path and saved_playlist_id is not None:
+        norm_playing = ntpath.normcase(ntpath.normpath(playing_path))
+        if norm_playing in target_paths:
+            have_been_playing = True
+            if fb_api:
+                try:
+                    fb_api.stop()  # Detiene la reproducción para liberar el archivo en Windows
+                except Exception:
+                    pass
+    
+    # --- 2. APLICACIÓN DE ETIQUETAS Y CARÁTULA NORMAL ---                
     success_count = 0
     for entry in selected_entries:
         locking_apps = get_locking_processes([str(entry.path)])
@@ -133,6 +172,18 @@ def apply_panel_tags_to_selection(panel, selected_entries: list, status_callback
             except Exception:
                 pass
 
+    # --- 3. REANUDAR REPRODUCCIÓN Y POSICIÓN EN FOOBAR2000 ---
+    if fb_api and have_been_playing and saved_playlist_id is not None and saved_index is not None:
+        try:
+            # Como las rutas no cambian, el índice en la playlist sigue siendo válido
+            fb_api.play_item_but_pause(saved_playlist_id, saved_index)
+            if saved_position > 0:
+                time.sleep(0.3)  # Breve pausa para asegurar el arranque antes del seeking
+                fb_api.set_position_but_come(saved_position)
+        except Exception as fb_err:
+            print(f"Error al reanudar foobar2000 tras aplicar tags: {fb_err}")            
+
+    # --- 4. EXITO NORMAL ---
     if success_count > 0:
         for chk, widget in active_fields:
             chk.setChecked(False)
