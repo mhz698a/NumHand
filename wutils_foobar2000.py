@@ -17,7 +17,7 @@ def select_foobar2000_playing_file(parent, current_path=_UNSET) -> bool:
     """Selecciona y hace visible el archivo reproducido si está en el modelo."""
     if current_path is _UNSET:
         try:
-            current_path = Foobar2000Api().current_path()
+            current_path = Foobar2000Api().current_path_playbackState()
         except Exception:
             # La API puede no estar disponible; no debe impedir abrir NumHand.
             return False
