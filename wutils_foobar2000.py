@@ -10,9 +10,12 @@ from PyQt6.QtWidgets import QMessageBox, QAbstractItemView
 from pyutils.foobar2000_api import Foobar2000Api
 
 
-def select_foobar2000_playing_file(parent, current_path: str | None = None) -> bool:
+_UNSET = object()
+
+
+def select_foobar2000_playing_file(parent, current_path=_UNSET) -> bool:
     """Selecciona y hace visible el archivo reproducido si está en el modelo."""
-    if current_path is None:
+    if current_path is _UNSET:
         try:
             current_path = Foobar2000Api().current_path()
         except Exception:
