@@ -15,7 +15,7 @@ from widget_filehand import FileDelegate
 from widget_left_p import IndividualTaggerPanel
 from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
-from folder_cache import FolderCache
+from sys_folder_cache import FolderCache
 from sysmove import (
     check_folder_numbering,
     move_selected_files,

@@ -107,6 +107,20 @@ class FileModel(QAbstractListModel):
         )
         return True
 
+    def clear_files(self):
+        """Vacía la lista antes de comenzar una carga progresiva."""
+        self.beginResetModel()
+        self.files = []
+        self.endResetModel()
+
+    def add_file(self, file):
+        """Añade una entrada ya preparada sin reiniciar toda la lista."""
+        row = len(self.files)
+        self.beginInsertRows(QModelIndex(), row, row)
+        file.original_row = row
+        self.files.append(file)
+        self.endInsertRows()
+
     def set_files(self, files):
         self.beginResetModel()
         self.files = [FileEntry(file) for file in files]

@@ -12,7 +12,8 @@ import syswall
 
 from sysprog import DualProgressDialog
 from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
-from sysutils import LoadFolderTask, ApplyOrderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
+from sysutils import LoadFolderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
+from sys_engine_dest import ApplyOrderTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 
@@ -20,7 +21,7 @@ class FileUtils:
 
     def __init__(self):
         self.thread_pool = QThreadPool.globalInstance()
-        from folder_cache import FolderCache
+        from sys_folder_cache import FolderCache
         self.folder_cache = FolderCache()
 
     def sync_folder_cache(self, folder):
@@ -53,17 +54,19 @@ class FileUtils:
         progress_dialog = DualProgressDialog("Cargando carpeta", parent)
         progress_dialog.show()
 
+        # Mostrar resultados progresivamente desde el inicio de la carga.
+        model.clear_files()
         task = LoadFolderTask(parent.folder, self)
 
-        def on_finished(files):
+        def on_finished(files_loaded):
             progress_dialog.close()
-            model.set_files(files)
 
         def on_error(err_msg):
             progress_dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
         task.signals.progress.connect(progress_dialog.update_progress)
+        task.signals.file_loaded.connect(model.add_file)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 

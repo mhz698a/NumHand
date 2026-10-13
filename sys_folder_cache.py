@@ -1,9 +1,40 @@
 """SQLite cache for direct file listings, isolated from UI and file operations."""
 import json
 import os
+import re
+from functools import cmp_to_key
 import sqlite3
 import time
 from pathlib import Path
+
+
+def windows_explorer_sort_key(filename):
+    """Clave de orden natural similar al Explorador de Windows.
+
+    Compara los bloques numéricos como números, por lo que file2 precede
+    a file10. El desempate conserva un orden estable entre mayúsculas y
+    minúsculas y entre representaciones numéricas equivalentes.
+    """
+    parts = re.split(r"(\d+)", str(filename).casefold())
+    natural_parts = tuple(
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in parts
+    )
+    return natural_parts, str(filename).casefold(), str(filename)
+
+
+def _compare_explorer_names(left, right):
+    """Use the native Windows Explorer comparator when available."""
+    if os.name == "nt":
+        import ctypes
+        compare = ctypes.windll.shlwapi.StrCmpLogicalW
+        compare.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+        compare.restype = ctypes.c_int
+        return compare(str(left), str(right))
+
+    left_key = windows_explorer_sort_key(left)
+    right_key = windows_explorer_sort_key(right)
+    return (left_key > right_key) - (left_key < right_key)
 
 
 def _default_cache_path():
@@ -86,7 +117,7 @@ class FolderCache:
                     continue
                 records.append((entry.name, info.st_size, info.st_mtime_ns))
                 total_size += info.st_size
-        records.sort(key=lambda item: (item[0].casefold(), item[0]))
+        records.sort(key=cmp_to_key(lambda left, right: _compare_explorer_names(left[0], right[0])))
         fingerprint = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
         return records, len(records), total_size, fingerprint
 
@@ -111,6 +142,7 @@ class FolderCache:
             ):
                 try:
                     cached_paths = [Path(item) for item in json.loads(row[1])]
+                    cached_paths.sort(key=cmp_to_key(lambda left, right: _compare_explorer_names(left.name, right.name)))
                     if all(path.parent == folder for path in cached_paths):
                         connection.execute(
                             "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",

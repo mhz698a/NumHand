@@ -11,6 +11,7 @@ from wconst import BACKUP_FILENAME, TEMP_PREFIX
 
 class WorkerSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)  # (sub_current, sub_total, sub_label, main_current, main_total, main_label)
+    file_loaded = pyqtSignal(object)                    # FileEntry preparado en el hilo de carga
     finished = pyqtSignal(object)                         # result payload
     error = pyqtSignal(str)                              # error message
 
@@ -35,117 +36,23 @@ class LoadFolderTask(QRunnable):
                     return
 
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-            self.signals.progress.emit(0, 0, "Consultando cache de archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
             files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
             total = len(files)
-            self.signals.progress.emit(total, total, f"{total} archivos listos.", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
 
-            self.signals.finished.emit(files)
+            # Preparar y emitir cada entrada por separado. La lectura de metadatos
+            # ocurre en este worker, no en el hilo de la interfaz.
+            from model import FileEntry
+            for index, path in enumerate(files, start=1):
+                entry = FileEntry(path)
+                self.signals.file_loaded.emit(entry)
+                self.signals.progress.emit(
+                    index, total, f"Cargando archivo {index}/{total}: {path.name}",
+                    1, 1, "Cargando carpeta (Etapa 1 de 1)"
+                )
+
+            self.signals.finished.emit(total)
         except Exception as e:
             self.signals.error.emit(str(e))
-
-
-class ApplyOrderTask(QRunnable):
-    def __init__(self, folder_path, files, file_utils):
-        super().__init__()
-        self.folder_path = Path(folder_path)
-        self.files = files  # list of FileEntry
-        self.file_utils = file_utils
-        self.signals = WorkerSignals()
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            total_files = len(self.files)
-            if total_files == 0:
-                self.signals.finished.emit(True)
-                return
-
-            if total_files < 100:
-                number_format = "{:02d}. "
-            elif total_files < 1000:
-                number_format = "{:03d}. "
-            else:
-                number_format = "{:04d}. "
-
-            # FASE 1: Plan
-            temp_files = []
-            for index, file in enumerate(self.files, start=1):
-                temp_name = TEMP_PREFIX + uuid.uuid4().hex + file.path.suffix
-                temp_path = self.folder_path / temp_name
-
-                # Asegurar que clean_name incluye la extensión
-                final_name = number_format.format(index) + file.clean_name
-                final_path = self.folder_path / final_name
-
-                temp_files.append({
-                    "file": file,
-                    "temp_path": temp_path,
-                    "final_path": final_path
-                })
-
-            # FASE 1/4: Respaldo
-            def backup_cb(idx, total, orig_name):
-                self.signals.progress.emit(
-                    idx,
-                    total,
-                    f"Calculando hash y respaldando {idx}/{total}: {orig_name}",
-                    1,
-                    4,
-                    "Respaldo (Etapa 1 de 4)"
-                )
-
-            self.file_utils.create_backup_sync(temp_files, self.folder_path, progress_callback=backup_cb)
-
-            # FASE 2/4: Originales -> Temporales
-            for idx, item in enumerate(temp_files, start=1):
-                item["file"].path.rename(item["temp_path"])
-                self.signals.progress.emit(
-                    idx,
-                    total_files,
-                    f"Paso 1/2: renombrando {idx}/{total_files}",
-                    2,
-                    4,
-                    "Renombrando a nombres temporales (Etapa 2 de 4)"
-                )
-
-            # FASE 3/4: Temporales -> Definitivos
-            for idx, item in enumerate(temp_files, start=1):
-                temp_path = item["temp_path"]
-                final_path = item["final_path"]
-                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
-                item["file"].path = final_path
-                item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
-                self.signals.progress.emit(
-                    idx,
-                    total_files,
-                    f"Paso 2/2: aplicando numeración {idx}/{total_files}",
-                    3,
-                    4,
-                    "Aplicando numeración final (Etapa 3 de 4)"
-                )
-
-            # FASE 4/4: Eliminar backup
-            self.signals.progress.emit(
-                1,
-                1,
-                "Eliminando archivo de respaldo...",
-                4,
-                4,
-                "Finalizando operación (Etapa 4 de 4)"
-            )
-            backup_path = self.folder_path / BACKUP_FILENAME
-            if backup_path.exists():
-                backup_path.unlink()
-
-            self.signals.finished.emit(True)
-        except Exception as error:
-            # Intentar recuperación
-            recovered = self.file_utils.recover_backup_sync(self.folder_path)
-            if recovered:
-                for file in self.files:
-                    file.path = file.original_path
-            self.signals.error.emit(f"Error durante el renombrado: {error}")
 
 
 class FormatHundredsTask(QRunnable):
