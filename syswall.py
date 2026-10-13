@@ -117,6 +117,10 @@ def get_locking_processes(file_paths):
                 if not app_name:
                     pid = proc_info_array[i].Process.dwProcessId
                     app_name = f"PID {pid}"
+                    
+                if "foobar2000" in app_name.lower():
+                    continue    
+                
                 if app_name not in locking_apps:
                     locking_apps.append(app_name)
 

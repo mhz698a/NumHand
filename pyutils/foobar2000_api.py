@@ -132,13 +132,28 @@ class Foobar2000Api:
           json={"by": expression},
       )
 
-    def play_item(self, playlist_id: str | int, index: int) -> None:
-      """Reproduce un elemento específico de una playlist por su índice."""
-      self._post(f"/api/player/play/{playlist_id}/{index}")
+    def play_item_but_pause(self, playlist_id: str | int, index: int) -> None:
+        """Reproduce un elemento específico de una playlist por su índice.
+        Pero dejandolo en pause.
+        """
+        self._post(f"/api/player/play/{playlist_id}/{index}")
+        self._post("/api/player", json={"playback": "pause"})
 
-    def set_position(self, position_seconds: float) -> None:
-      """Establece la posición actual de reproducción en segundos (Seeking)."""
-      self._post(
-          "/api/player",
-          json={"position": position_seconds},
-      )
+    def set_position_but_come(self, position_seconds: float) -> None:
+        """Establece la posición actual de reproducción en segundos (Seeking).
+        Asumiendo pausa y luego darle playing.
+        """
+        self._post("/api/player", json={"position": position_seconds},)
+        self._post("/api/player", json={"playback": "playing"})
+    
+    def set_player_state_atomic(self, state: dict[str, Any]) -> None:
+        """Establece el estado completo del reproductor (playback, activeItem, position, etc.) de forma atómica."""
+        self._post("/api/player", json=state)
+        
+    def play_item_single(self, playlist_id: str | int, index: int) -> None:
+        """Reproduce un elemento específico de una playlist por su índice."""
+        self._post(f"/api/player/play/{playlist_id}/{index}")
+
+    def set_position_single(self, position_seconds: float) -> None:
+        """Establece la posición actual de reproducción en segundos (Seeking)."""
+        self._post("/api/player", json={"position": position_seconds},)
