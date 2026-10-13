@@ -47,9 +47,16 @@ class WMain(QMainWindow):
         setup_status_bar(self)
 
         if self.folder and self.folder.exists():
-            self.file_utils.load_folder(self, self.model)
             if select_playing:
-                select_foobar2000_playing_file(self)
+                # La carga de la carpeta es asíncrona: seleccionar únicamente
+                # cuando el modelo ya recibió todos los archivos.
+                self.file_utils.load_folder(
+                    self,
+                    self.model,
+                    on_loaded=lambda: select_foobar2000_playing_file(self),
+                )
+            else:
+                self.file_utils.load_folder(self, self.model)
 
     def build_ui(self):
         l_central = QWidget()
