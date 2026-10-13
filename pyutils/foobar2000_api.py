@@ -24,8 +24,10 @@ class Foobar2000Api:
         response.raise_for_status()
         return response.json()
 
-    def player(self) -> dict[str, Any]:
-        return self._get("/api/player")
+    def player(self, columns: list[str] | None = None) -> dict[str, Any]:
+        params = {"columns": columns} if columns else {}
+        return self._get("/api/player", params=params)
+
 
     def playlist_items(
         self,
@@ -44,30 +46,16 @@ class Foobar2000Api:
         return payload.get("items", [])
 
     def current_path(self) -> str | None:
-        player = self.player().get("player", {})
-        if player.get("playback") != "playing":
+        # Beefweb names this field "playbackState" (not "playback").
+        # Request %path% directly with the player state so we do not need
+        # a second playlist request or rely on playlist range semantics.
+        player = self.player(columns=["%path%"]).get("player", {})
+        if player.get("playbackState") != "playing":
             return None
 
-        item = player.get("activeItem")
-        if not item:
-            return None
-
-        playlist_id = item.get("playlistId")
-        index = item.get("index")
-        if playlist_id is None or index is None:
-            return None
-
-        items = self.playlist_items(
-            playlist_id,
-            start=index,
-            end=index + 1,
-            columns=["%path%"],
-        )
-        if not items:
-            return None
-
-        columns = items[0].get("columns", [])
-        return columns[0] if columns else None
+        active_item = player.get("activeItem") or {}
+        columns = active_item.get("columns") or []
+        return columns[0] if columns and columns[0] else None
 
     def _post(self, path: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """Realiza una petición POST específica para la API de Beefweb.
