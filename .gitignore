@@ -1,4 +1,5 @@
 # === Archivos compilados y caché de Python ===
+__sandbox__/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,6 +7,9 @@ __docs__/
 .vscode/
 *.bat
 *.tmp
+
+# === workflows disabled feature ===
+__workflows__/
 
 # === Entornos Virtuales ===
 # Ignora las carpetas más comunes donde se configuran los entornos locales
