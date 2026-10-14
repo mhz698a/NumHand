@@ -2,7 +2,7 @@ import platform
 from pathlib import Path
 
 
-def get_locking_processes(file_paths):
+def get_locking_processes(file_paths, omit_fb=True):
     """
     Comprueba si alguna de las rutas en file_paths está bloqueada por algún proceso en Windows
     usando Restart Manager (rstrtmgr.dll).
@@ -118,7 +118,7 @@ def get_locking_processes(file_paths):
                     pid = proc_info_array[i].Process.dwProcessId
                     app_name = f"PID {pid}"
                     
-                if "foobar2000" in app_name.lower():
+                if "foobar2000" in app_name.lower() and omit_fb:
                     continue    
                 
                 if app_name not in locking_apps:

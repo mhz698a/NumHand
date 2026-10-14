@@ -39,5 +39,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(ICON_PATH))
     _wmain = WMain(path_input, select_playing=not args.no_select_playing)
-    _wmain.show()
+    _wmain.showMaximized()
     sys.exit(app.exec())

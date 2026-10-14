@@ -15,7 +15,6 @@ from widget_filehand import FileDelegate
 from widget_right_p import IndividualTaggerPanel
 from sys_non_enum import apply_changes_non_enum
 from sysfiles import FileUtils
-from sys_folder_cache import FolderCache
 from sysmove import (
     check_folder_numbering,
     move_selected_files,
@@ -25,6 +24,8 @@ from sysmove import (
 from wutils_foobar2000 import check_foobar2000_playing_file, select_foobar2000_playing_file
 from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
 from wstatusbar import setup_status_bar, show_status_message
+from widget_left_p import YearSubFolderPanel
+from sub_controller import SubFolderController
 
 class WMain(QMainWindow):
 
@@ -39,7 +40,6 @@ class WMain(QMainWindow):
         self.folder_cache = self.file_utils.folder_cache
 
         self.setWindowTitle("Numeric Handler Files")
-        self.resize(1000, 700)
         self.build_ui()
         self.build_menubar()
         self.build_listview()
@@ -71,10 +71,26 @@ class WMain(QMainWindow):
 
         self.file_list = FileListView()
         v_layout.addWidget(self.file_list)
+        
+        # -------------------------------------------------------------
+        self.left_dock = QDockWidget("Years And Subfolders Explorer", self)
+        self.left_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.left_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        
+        self.left_dock.setTitleBarWidget(QWidget(self.left_dock))
+        
+        self.left_panel = YearSubFolderPanel(self.left_dock)
+        self.left_dock.setWidget(self.left_panel)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.left_dock)
+        
+        self.sub_controller = SubFolderController(self.left_panel, self)
 
+        # -------------------------------------------------------------
         self.tagger_dock = QDockWidget("File Tags (Invididual)", self)
         self.tagger_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.tagger_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        
+        self.tagger_dock.setTitleBarWidget(QWidget(self.tagger_dock))
         
         self.tagger_panel = IndividualTaggerPanel(self.tagger_dock)
         self.tagger_dock.setWidget(self.tagger_panel)
@@ -148,6 +164,8 @@ class WMain(QMainWindow):
         # Menú Utilidades
         # ----------------------------------------
         add_menu_items(barra_menu.addMenu("&Utilidades"), [
+            ("Current SubFolder Opened", lambda: self.sub_controller.sync_with_current_folder()),
+            None,
             ("Quit Numeration Folder", lambda: self.file_utils.reset_numeration_folder(self, self.model), "Ctrl+F5"),
             ("Recover Failed Renames", lambda: self.file_utils.recover_failed_names(self, self.model), "Ctrl+Shift+R"),
             ("Convert to Hundreds Format", lambda: self.file_utils.format_hundreds(self, self.model)),

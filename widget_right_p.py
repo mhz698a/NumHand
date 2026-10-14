@@ -27,7 +27,7 @@ class IndividualTaggerPanel(QWidget):
             chk.toggled.connect(widget.setEnabled)
             
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 5, 10, 10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(8)
 
         metadata_layout = QFormLayout()

@@ -46,6 +46,14 @@ class FileUtils:
 
         parent.folder = Path(folder)
         self.load_folder(parent, model)
+        
+    def select_folder_import(self, parent, model, folder_path):
+        if not folder_path:
+            return
+
+        parent.folder = Path(folder_path)
+        self.load_folder(parent, model)
+        
 
     def load_folder(self, parent, model, on_loaded=None):
         """Carga la carpeta en segundo plano y ejecuta on_loaded al terminar."""
