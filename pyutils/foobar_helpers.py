@@ -318,7 +318,10 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
     active_playlist_id = state.get("active_playlist_id")
     auxiliary_playlist_id = state.get("auxiliary_playlist_id")
     playback_affected = bool(state.get("playback_affected"))
-    should_sync_source_playlist = bool(state.get("should_sync_source_playlist"))
+    should_sync_source_playlist = bool(
+        state.get("should_sync_source_playlist")
+        and state.get("playback_state_captured")
+    )
 
     # Si la playlist abierta en foobar2000 pertenece a otra carpeta y no se
     # movió la canción activa, no enviamos ningún POST a foobar2000.
