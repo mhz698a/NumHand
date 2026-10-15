@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QMessageBox, QDockWidget
 )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QItemSelectionModel
 
 from model import FileModel
 from wfilelist_view import FileListView
@@ -106,6 +106,20 @@ class WMain(QMainWindow):
         self.file_list.selectionModel().selectionChanged.connect(
             self._on_file_selection_changed
         )
+
+    def select_first_file(self):
+        """Selecciona visualmente el primer archivo de la lista, si existe."""
+        if not self.model.files:
+            return False
+
+        first_index = self.model.index(0, 0)
+        self.file_list.selectionModel().setCurrentIndex(
+            first_index,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows,
+        )
+        self.file_list.scrollTo(first_index)
+        return True
     
     def _on_apply_tags_clicked(self):
         selected_indexes = self.file_list.selectionModel().selectedIndexes()
