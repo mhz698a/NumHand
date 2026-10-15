@@ -192,7 +192,10 @@ def capture_foobar_file_move_state(
             except Exception as playlist_error:
                 state["playlist_match_error"] = str(playlist_error)
 
-        player_info = foobar_api.player().get("player", {})
+        player_payload = foobar_api.player()
+        player_info = player_payload.get("player")
+        if not isinstance(player_info, dict) or "playbackState" not in player_info:
+            raise RuntimeError("La API no devolvió un estado de reproductor verificable.")
         active_item = player_info.get("activeItem") or {}
         volume_info = player_info.get("volume") or {}
         state["saved_playback_state"] = player_info.get("playbackState", "stopped")
@@ -206,14 +209,24 @@ def capture_foobar_file_move_state(
         if not playing_path:
             playing_path = foobar_api.current_path()
         state["playing_path"] = playing_path
+        if not playing_path:
+            # Si el reproductor declara playback activo pero no se pudo resolver
+            # su archivo, es más seguro no reconstruir ninguna playlist.
+            if state["saved_playback_state"] != "stopped":
+                state["capture_error"] = (
+                    "No se pudo identificar la ruta del elemento activo de foobar2000."
+                )
+                return state
+            state["playback_state_captured"] = True
+            state["should_sync_source_playlist"] = bool(
+                state["playlist_matches_source_folder"]
+            )
+            return state
+
         state["playback_state_captured"] = True
-        # No sincronizar si no se pudo leer el estado completo del reproductor:
-        # en ese caso no podemos descartar que la pista activa vaya a moverse.
         state["should_sync_source_playlist"] = bool(
             state["playlist_matches_source_folder"]
         )
-        if not playing_path:
-            return state
 
         normalized_mapping = {
             _normalize_move_path(old_path): str(new_path)
