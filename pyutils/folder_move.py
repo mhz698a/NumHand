@@ -18,7 +18,7 @@ def strip_year_prefix(name: str) -> str:
 
 class FolderMoveSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)
-    finished = pyqtSignal(str, str)
+    finished = pyqtSignal(str, str, Path)
     error = pyqtSignal(str)
 
 
@@ -50,8 +50,7 @@ class FolderMoveTask(QRunnable):
             base_name = strip_year_prefix(self.source_dir.name)
             dst_prefix = year_prefix(self.dest_year)
 
-            dest_base = self.base_root / self.dest_year / f"{dst_prefix} music"
-            dest_dir = dest_base / f"{dst_prefix} {base_name}"
+            dest_dir = self.base_root / self.dest_year / f"{dst_prefix} music" / f"{dst_prefix} {base_name}"
 
             if self.source_dir.resolve() == dest_dir.resolve():
                 self.signals.finished.emit(src_year, self.dest_year)
@@ -65,9 +64,6 @@ class FolderMoveTask(QRunnable):
                 0, 100, "Moviendo carpeta...", 1, 1, f"Moviendo a {self.dest_year}..."
             )
 
-            # Asegurar que la carpeta base de destino exista
-            dest_base.mkdir(parents=True, exist_ok=True)
-
             # Mover la carpeta de forma atómica y rápida al estar en la misma unidad
             shutil.move(str(self.source_dir), str(dest_dir))
 
@@ -75,7 +71,7 @@ class FolderMoveTask(QRunnable):
                 100, 100, "Movimiento completado", 1, 1, "Operación finalizada con éxito."
             )
 
-            self.signals.finished.emit(src_year, self.dest_year)
+            self.signals.finished.emit(src_year, self.dest_year, dest_dir)
 
         except Exception as error:
             self.signals.error.emit(str(error))

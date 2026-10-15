@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import time
 
@@ -38,56 +39,48 @@ def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
         pass
     return state
 
-def restore_and_sync_foobar_playlist(state, old_dir, new_dir):
-    """Limpia las rutas viejas de la playlist, agrega las nuevas y restaura la reproducción."""
-    if not state["fb_api"] or state["saved_playlist_id"] is None:
+def restore_and_sync_foobar_playlist(state, new_dir):
+    """Reconstruye la playlist con las nuevas rutas de new_dir (tras cambio de carpeta) 
+    y reanuda la reproducción localizando el archivo por su nombre."""
+    if not state.get("fb_api") or state.get("saved_playlist_id") is None:
         return
+    
+    if not os.path.exists(new_dir):
+        raise NotADirectoryError(f"Este directorio no existe y/o esta mal calculado: {new_dir}")
     
     fb_api = state["fb_api"]
     playlist_id = state["saved_playlist_id"]
     
     try:
-        playlist_items = fb_api.playlist_items(playlist_id, start=0, end=20000, columns=["%path%"])
-        indices_to_remove = []
-        old_dir_str = str(Path(old_dir).resolve()).lower()
-
-        for idx, pitem in enumerate(playlist_items):
-            cols = pitem.get("columns", [])
-            if cols:
-                item_p_str = Path(cols[0]).resolve().as_posix().lower()
-                if item_p_str.startswith(old_dir_str.replace("\\", "/")):
-                    indices_to_remove.append(idx)
-
-        if indices_to_remove:
-            indices_to_remove.sort(reverse=True)
-            fb_api.remove_playlist_items(playlist_id, indices_to_remove)
-
+        # 1. Escanear todos los archivos de audio en la NUEVA ubicación
+        audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", "mp4",".aac", ".opus")
         new_audio_paths = [
-            str(f) for f in Path(new_dir).rglob("*") 
-            if f.is_file() and f.suffix.lower() in (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac")
+            str(Path(f).resolve()) for f in Path(new_dir).rglob("*")
+            if f.is_file() and f.suffix.lower() in audio_extensions
         ]
+        
+        if not new_audio_paths:
+            return
 
-        if new_audio_paths:
-            fb_api.add_playlist_items(playlist_id, new_audio_paths)
-            fb_api.sort_playlist(playlist_id, expression="%path%")
-
-        if state["have_been_playing"] and state["new_path_for_playing"]:
-            updated_items = fb_api.playlist_items(playlist_id, start=0, end=20000, columns=["%path%"])
-            norm_new_playing = Path(state["new_path_for_playing"]).resolve().as_posix().lower()
-            
-            new_index = None
-            for idx, pitem in enumerate(updated_items):
-                cols = pitem.get("columns", [])
-                if cols and Path(cols[0]).resolve().as_posix().lower() == norm_new_playing:
-                    new_index = idx
+        # 2. Identificar el archivo activo anterior y deducir su nueva ruta basada en el nombre
+        target_new_path = None
+        saved_playing_path = state.get("saved_file_path") or state.get("new_path_for_playing")
+        
+        if state.get("have_been_playing") and saved_playing_path:
+            old_filename = Path(saved_playing_path).name
+            # Buscar dentro de las nuevas rutas aquella que comparta exactamente el nombre de archivo
+            for new_path in new_audio_paths:
+                if Path(new_path).name.lower() == old_filename.lower():
+                    target_new_path = new_path
                     break
 
-            if new_index is not None:
-                time.sleep(0.8)
-                fb_api.play_item_but_pause(playlist_id, new_index)
-                if state["saved_position"] > 0:
-                    time.sleep(0.5)
-                    fb_api.set_position_but_come(state["saved_position"])
+        # 3. Delegar la recarga masiva y el posicionamiento inteligente a la API
+        fb_api.reload_and_restore_playlist(
+            playlist_id=playlist_id,
+            new_paths=new_audio_paths,
+            target_file_path=target_new_path,
+            position_seconds=state.get("saved_position", 0.0)
+        )
 
     except Exception as fb_err:
-        print(f"Error actualizando playlist de Foobar2000: {fb_err}")
+        print(f"Error sincronizando playlist de Foobar2000 tras cambio de carpeta: {fb_err}")

@@ -386,7 +386,7 @@ class SubFolderController(QObject):
             target_dir.rename(new_dir)
 
             # 4. Sincronizar Foobar2000 usando el helper centralizado
-            restore_and_sync_foobar_playlist(foobar_state, target_dir, new_dir)
+            restore_and_sync_foobar_playlist(foobar_state, new_dir)
 
             # 5. Si la carpeta estaba abierta en la app, actualizar ruta y recargar vista
             if is_current_folder_open:
@@ -418,6 +418,14 @@ class SubFolderController(QObject):
         dest_year = dlg.selected_year()
         if not dest_year:
             return
+        
+        if str(dest_year) == str(src_year):
+            QMessageBox.warning(
+                self.main_window,
+                "Acción no permitida",
+                f"La carpeta ya se encuentra en el año {dest_year}."
+            )
+            return
 
         is_current_folder_open = self._is_folder_currently_open(src_dir)
 
@@ -427,10 +435,11 @@ class SubFolderController(QObject):
         except Exception:
             pass
 
+        # Construir la ruta destino correcta basada en el año seleccionado en el diálogo
         dest_base_path = self.build_music_ahead_path(dest_year)
         new_dir = dest_base_path / src_dir.name
-
-        # Capturar el estado de reproducción y precalcular la nueva ruta en el año de destino
+        
+        # Capturar el estado de reproducción usando la nueva ruta correcta
         foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
 
         if not self._check_files_in_use(src_dir):
@@ -441,12 +450,36 @@ class SubFolderController(QObject):
 
         task = FolderMoveTask(src_dir, dest_year, BASE_ROOT)
 
-        def on_finished(sy, dy):
+        def on_finished(sy, dy, real_dest_dir):
             progress_dialog.close()
-            self.on_folder_move_finished(
-                src_dir, new_dir, is_current_folder_open, foobar_state, dest_year
-            )
+            
+            # Seleccionar el año destino en la interfaz de manera silenciosa
+            table = self.panel.YearSelectorCells
+            table.blockSignals(True)
+            self._select_year_in_table(dest_year)
+            table.blockSignals(False)
+            self.last_valid_year = str(dest_year)      
 
+            # Si la carpeta estaba abierta, actualizar ruta y recargar vista
+            if is_current_folder_open:
+                self.main_window.folder = new_dir
+                if hasattr(self.main_window, "file_list"):
+                    self.main_window.file_list.clearSelection()
+                
+                if foobar_state.get("have_been_playing") and foobar_state.get("new_path_for_playing"):
+                    self.main_window.file_utils.load_folder(
+                        self.main_window, 
+                        self.main_window.model, 
+                        on_loaded=lambda: select_foobar2000_playing_file(self.main_window, current_path=foobar_state["new_path_for_playing"])
+                    )
+                else:
+                    self.main_window.file_utils.load_folder(self.main_window, self.main_window.model)
+            
+            subfolders = self.fetch_subfolders_for_year(dest_year)
+            self._populate_subfolders_ui(subfolders, select_subfolder=real_dest_dir.name)
+            
+            restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir))            
+            
         def on_error(err_msg):
             progress_dialog.close()
             QMessageBox.critical(self.main_window, "Error", f"No se pudo mover la carpeta:\n{err_msg}")
@@ -457,37 +490,6 @@ class SubFolderController(QObject):
 
         QThreadPool.globalInstance().start(task)
 
-    def on_folder_move_finished(
-        self, src_dir_resolved, new_dir, is_current_folder_open, foobar_state, target_destination_year
-    ):
-        # 1. Sincronizar Foobar2000 usando el helper centralizado
-        restore_and_sync_foobar_playlist(foobar_state, src_dir_resolved, new_dir)
-
-        # 2. Seleccionar el año destino en la interfaz de manera silenciosa
-        table = self.panel.YearSelectorCells
-        table.blockSignals(True)
-        self._select_year_in_table(target_destination_year)
-        table.blockSignals(False)
-        self.last_valid_year = str(target_destination_year)      
-
-        # 3. Si la carpeta estaba abierta, actualizar ruta y recargar vista
-        if is_current_folder_open:
-            self.main_window.folder = new_dir
-            if hasattr(self.main_window, "file_list"):
-                self.main_window.file_list.clearSelection()
-            
-            if foobar_state["have_been_playing"] and foobar_state["new_path_for_playing"]:
-                self.main_window.file_utils.load_folder(
-                    self.main_window, 
-                    self.main_window.model, 
-                    on_loaded=lambda: select_foobar2000_playing_file(self.main_window, current_path=foobar_state["new_path_for_playing"])
-                )
-            else:
-                self.main_window.file_utils.load_folder(self.main_window, self.main_window.model)
-        
-        # 4. Cargar subcarpetas del año destino y seleccionar la subcarpeta movida
-        subfolders = self.fetch_subfolders_for_year(target_destination_year)
-        self._populate_subfolders_ui(subfolders, select_subfolder=new_dir.name)
 
     def refresh_subfolders(self, year):
         subfolders = self.fetch_subfolders_for_year(year)
