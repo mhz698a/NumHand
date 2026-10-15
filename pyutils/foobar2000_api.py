@@ -202,10 +202,7 @@ class Foobar2000Api:
     def reload_and_restore_playlist(self, playlist_id: str | int, 
                                     new_paths: list[str], target_file_path: str | None = None, position_seconds: float = 0.0,
                                     volume_p: float = 0.0) -> None:
-        """Flujo completo: detiene, limpia la playlist, reañade los paths y reanuda el archivo activo en su posición."""
-        self.stop()
-        self.clear_playlist(playlist_id)
-        
+        """Flujo completo: detiene, limpia la playlist, reañade los paths y reanuda el archivo activo en su posición."""        
         if new_paths:
             self.add_playlist_items(playlist_id, new_paths)
             # Darle un respiro a foobar2000 para que indexe masivamente los elementos insertados
