@@ -43,55 +43,70 @@ def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
                     rel_subpath = play_p.relative_to(target_resolved)
                     state["new_path_for_playing"] = str(Path(new_dir).resolve() / rel_subpath)
                 foobar_api.stop()
+                # La playlist se limpia después de completar el cambio físico, no durante la captura.
                 time.sleep(0.7)
-                foobar_api.clear_playlist(state["saved_playlist_id"])
     except Exception:
         pass
     return state
 
-def restore_and_sync_foobar_playlist(state, new_dir, file_entries=None):
-    """Reconstruye la playlist con las nuevas rutas de new_dir (tras cambio de carpeta) 
-    y reanuda la reproducción localizando el archivo por su nombre sin usar glob/rglob."""
-    if not state.get("fb_api") or state.get("saved_playlist_id") is None:
+def restore_and_sync_foobar_playlist(state, new_dir, file_entries=None, source_dir=None):
+    """Reconstruye la playlist con la lista completa de archivos capturada antes del cambio."""
+    if (
+        not state.get("fb_api")
+        or state.get("saved_playlist_id") is None
+        or not state.get("have_been_playing")
+    ):
         return
-    
+
+    # No reconstruir una playlist con una lista parcial o desconocida.
+    if file_entries is None:
+        print("No se sincronizó Foobar2000: falta la lista completa de archivos de origen.")
+        return
+
     fb_api = state["fb_api"]
     playlist_id = state["saved_playlist_id"]
     saved_volume = state.get("saved_volume")
-    
+
     try:
         audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".mp4", ".aac", ".opus")
+        source_root = Path(source_dir).resolve() if source_dir is not None else None
+        destination_root = Path(new_dir).resolve()
         new_audio_paths = []
 
-        if file_entries:
-            for item in file_entries:
-                p = Path(item.path if hasattr(item, "path") else item)
-                if p.suffix.lower() in audio_extensions:
-                    new_p = Path(new_dir) / p.name
-                    new_audio_paths.append(str(new_p.resolve()))
-        else:
-            saved_playing = state.get("saved_file_path") or state.get("new_path_for_playing")
-            if saved_playing:
-                new_audio_paths.append(str(Path(saved_playing).resolve()))
+        for item in file_entries:
+            raw_path = item.path if hasattr(item, "path") else item
+            original_path = Path(raw_path).resolve()
+            if original_path.suffix.lower() not in audio_extensions:
+                continue
+
+            if source_root is not None:
+                try:
+                    relative_path = original_path.relative_to(source_root)
+                except ValueError:
+                    # Ignorar entradas ajenas a la carpeta que se está moviendo.
+                    continue
+            else:
+                relative_path = Path(original_path.name)
+
+            new_audio_paths.append(str((destination_root / relative_path).resolve()))
 
         if not new_audio_paths:
             return
 
-        # 2. Identificar el archivo activo anterior y deducir su nueva ruta basada en el nombre
-        target_new_path = None
-        saved_playing_path = state.get("saved_file_path") or state.get("new_path_for_playing")
-        
-        if state.get("have_been_playing") and saved_playing_path:
-            old_filename = Path(saved_playing_path).name
-            # Buscar dentro de las nuevas rutas aquella que comparta exactamente el nombre de archivo
-            for new_path in new_audio_paths:
-                if Path(new_path).name.lower() == old_filename.lower():
-                    target_new_path = new_path
-                    break
+        target_new_path = state.get("new_path_for_playing")
+        if target_new_path:
+            normalized_target = Path(target_new_path).resolve().as_posix().casefold()
+            if not any(
+                Path(path).resolve().as_posix().casefold() == normalized_target
+                for path in new_audio_paths
+            ):
+                target_new_path = None
 
-        # 3. Delegar la recarga masiva y el posicionamiento inteligente a la API
+        # La playlist se conserva si la operación previa falla o se cancela.
         fb_api.set_muted()
         time.sleep(0.8)
+        fb_api.clear_playlist(playlist_id)
+        time.sleep(0.2)
         fb_api.reload_and_restore_playlist(
             playlist_id=playlist_id,
             new_paths=new_audio_paths,
