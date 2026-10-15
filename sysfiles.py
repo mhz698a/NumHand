@@ -15,13 +15,12 @@ from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, class
 from sysutils import LoadFolderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from sys_engine_dest import ApplyOrderTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
-
+from sys_folder_cache import FolderCache
 
 class FileUtils:
 
     def __init__(self):
         self.thread_pool = QThreadPool.globalInstance()
-        from sys_folder_cache import FolderCache
         self.folder_cache = FolderCache()
 
     def sync_folder_cache(self, folder):
@@ -60,28 +59,27 @@ class FileUtils:
         if not parent.folder or not parent.folder.exists():
             return
 
-        progress_dialog = DualProgressDialog("Cargando carpeta", parent)
-        progress_dialog.show()
+        self.progress_dialog = DualProgressDialog("Cargando carpeta", parent)
+        self.progress_dialog.show()
 
-        # Mostrar resultados progresivamente desde el inicio de la carga.
         model.clear_files()
         task = LoadFolderTask(parent.folder, self)
 
         def on_finished(files_loaded):
-            progress_dialog.close()
+            self.progress_dialog.close()
             if on_loaded is not None:
                 on_loaded()
 
         def on_error(err_msg):
-            progress_dialog.close()
+            self.progress_dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
-        task.signals.progress.connect(progress_dialog.update_progress)
+        task.signals.progress.connect(self.progress_dialog.update_progress)
         task.signals.file_loaded.connect(model.add_file)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
-        self.thread_pool.start(task)
+        QThreadPool.globalInstance().start(task)
 
     def check_files_locked(self, parent, file_paths):
         locking_apps = syswall.get_locking_processes(file_paths)

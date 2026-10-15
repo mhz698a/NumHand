@@ -178,18 +178,30 @@ class Foobar2000Api:
     def clear_playlist(self, playlist_id: str | int) -> None:
         """Borra todos los elementos de una playlist."""
         self._post(f"/api/playlists/{playlist_id}/clear")
-        
+    
     def play_item_with_position(self, playlist_id: str | int, 
-                                index: int, position_seconds: float = 0.0) -> None:
+                                index: int, position_seconds: float = 0.0, volume:int=0) -> None:
         """Reproduce un ítem específico y restaura su posición con pausas transitorias."""
+        
         self._post(f"/api/player/play/{playlist_id}/{index}")
         time.sleep(0.6)
         self._post("/api/player", json={"position": position_seconds, "playbackState": "paused"})
         time.sleep(0.2)
         self._post("/api/player", json={"playbackState": "playing"})
     
+    def set_muted(self) -> None:
+        self._post("/api/player", json={"isMuted": True})
+
+    def set_volume_non_muted(self, volume: float = 0.0) -> None:
+        payload_volume = {
+            "isMuted": False,
+            "volume": volume
+        }
+        self._post("/api/player", json=payload_volume)
+
     def reload_and_restore_playlist(self, playlist_id: str | int, 
-                                    new_paths: list[str], target_file_path: str | None = None, position_seconds: float = 0.0) -> None:
+                                    new_paths: list[str], target_file_path: str | None = None, position_seconds: float = 0.0,
+                                    volume_p: float = 0.0) -> None:
         """Flujo completo: detiene, limpia la playlist, reañade los paths y reanuda el archivo activo en su posición."""
         self.stop()
         self.clear_playlist(playlist_id)

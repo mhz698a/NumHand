@@ -140,9 +140,9 @@ class WMain(QMainWindow):
         # Menú Archivo
         # ----------------------------------------
         add_menu_items(barra_menu.addMenu("&File"), [
-            ("&Open Oring Folder", lambda: self.file_utils.select_folder(self, self.model), "Ctrl+O"),
-            ("&Refresh Oring Folder", lambda: self.file_utils.load_folder(self, self.model), "F5"),
-            ("&Open Oring Folder", self.openFolderExplorer, "Ctrl+P"),
+            ("&Load Custom Oring Folder", lambda: self.file_utils.select_folder(self, self.model), "Ctrl+O"),
+            ("&Refresh Current Oring Folder", lambda: self.file_utils.load_folder(self, self.model), "F5"),
+            ("&Open Current Oring Folder", self.openFolderExplorer, "Ctrl+P"),
             None,
             ("&Apply changes", lambda: self.file_utils.apply_order(self, self.model), "Ctrl+S"),
             ("Apply changes (Non-Enum)", lambda: apply_changes_non_enum(self, self.model)),

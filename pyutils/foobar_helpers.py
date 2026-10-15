@@ -13,11 +13,19 @@ def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
         "saved_playlist_id": None,
         "saved_position": 0.0,
         "playing_path": None,
-        "new_path_for_playing": None
+        "new_path_for_playing": None,
+        "saved_volume": None,
+        "saved_is_muted": False,
     }
     try:
         player_data = foobar_api.player()
-        active_item = player_data.get("player", {}).get("activeItem")
+        player_info = player_data.get("player", {})
+        
+        volume_info = player_info.get("volume", {})
+        state["saved_volume"] = volume_info.get("value")
+        state["saved_is_muted"] = volume_info.get("isMuted", False)
+
+        active_item = player_info.get("activeItem")
         if not active_item:
             return state
 
@@ -50,6 +58,7 @@ def restore_and_sync_foobar_playlist(state, new_dir):
     
     fb_api = state["fb_api"]
     playlist_id = state["saved_playlist_id"]
+    saved_volume = state.get("saved_volume")
     
     try:
         # 1. Escanear todos los archivos de audio en la NUEVA ubicación
@@ -75,12 +84,16 @@ def restore_and_sync_foobar_playlist(state, new_dir):
                     break
 
         # 3. Delegar la recarga masiva y el posicionamiento inteligente a la API
+        fb_api.set_muted()
+        time.sleep(0.8)
         fb_api.reload_and_restore_playlist(
             playlist_id=playlist_id,
             new_paths=new_audio_paths,
             target_file_path=target_new_path,
             position_seconds=state.get("saved_position", 0.0)
         )
+        time.sleep(0.8)
+        fb_api.set_volume_non_muted(saved_volume)
 
     except Exception as fb_err:
         print(f"Error sincronizando playlist de Foobar2000 tras cambio de carpeta: {fb_err}")

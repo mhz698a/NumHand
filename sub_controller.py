@@ -445,13 +445,13 @@ class SubFolderController(QObject):
         if not self._check_files_in_use(src_dir):
             return
 
-        progress_dialog = DualProgressDialog("Mover carpeta a otro año", self.main_window)
-        progress_dialog.show()
+        self.progress_dialog = DualProgressDialog("Mover carpeta a otro año", self.main_window)
+        self.progress_dialog.show()
 
         task = FolderMoveTask(src_dir, dest_year, BASE_ROOT)
 
         def on_finished(sy, dy, real_dest_dir):
-            progress_dialog.close()
+            self.progress_dialog.close()
             
             # Seleccionar el año destino en la interfaz de manera silenciosa
             table = self.panel.YearSelectorCells
@@ -462,15 +462,16 @@ class SubFolderController(QObject):
 
             # Si la carpeta estaba abierta, actualizar ruta y recargar vista
             if is_current_folder_open:
-                self.main_window.folder = new_dir
-                if hasattr(self.main_window, "file_list"):
-                    self.main_window.file_list.clearSelection()
+                self.main_window.folder = real_dest_dir
+                self.main_window.file_list.clearSelection()
                 
                 if foobar_state.get("have_been_playing") and foobar_state.get("new_path_for_playing"):
                     self.main_window.file_utils.load_folder(
                         self.main_window, 
                         self.main_window.model, 
-                        on_loaded=lambda: select_foobar2000_playing_file(self.main_window, current_path=foobar_state["new_path_for_playing"])
+                        on_loaded=lambda: select_foobar2000_playing_file(
+                            self.main_window, current_path=foobar_state["new_path_for_playing"]
+                        )
                     )
                 else:
                     self.main_window.file_utils.load_folder(self.main_window, self.main_window.model)
@@ -481,10 +482,10 @@ class SubFolderController(QObject):
             restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir))            
             
         def on_error(err_msg):
-            progress_dialog.close()
+            self.progress_dialog.close()
             QMessageBox.critical(self.main_window, "Error", f"No se pudo mover la carpeta:\n{err_msg}")
 
-        task.signals.progress.connect(progress_dialog.update_progress)
+        task.signals.progress.connect(self.progress_dialog.update_progress)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
 
