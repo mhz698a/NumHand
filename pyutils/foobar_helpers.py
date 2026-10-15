@@ -364,10 +364,15 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
                 and path.name != BACKUP_FILENAME
             ]
 
-        fb_api.clear_playlist(active_playlist_id)
-        if remaining_audio_paths:
-            fb_api.add_playlist_items(active_playlist_id, remaining_audio_paths)
-            time.sleep(min(1.0, 0.25 + len(remaining_audio_paths) * 0.001))
+        old_timeout = fb_api.timeout
+        fb_api.timeout = max(3.0, 3.0 + len(remaining_audio_paths) * 0.099)
+        try:
+            fb_api.clear_playlist(active_playlist_id)
+            if remaining_audio_paths:
+                fb_api.add_playlist_items(active_playlist_id, remaining_audio_paths)
+                time.sleep(0.8 + len(remaining_audio_paths) * 0.001)
+        finally:
+            fb_api.timeout = old_timeout
     except Exception as error:
         print(f"No se pudo sincronizar la playlist activa de foobar2000: {error}")
 
