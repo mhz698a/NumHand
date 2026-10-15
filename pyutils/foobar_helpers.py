@@ -43,6 +43,8 @@ def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
                     rel_subpath = play_p.relative_to(target_resolved)
                     state["new_path_for_playing"] = str(Path(new_dir).resolve() / rel_subpath)
                 foobar_api.stop()
+                foobar_api.clear_playlist(state["saved_playlist_id"])
+                
     except Exception:
         pass
     return state

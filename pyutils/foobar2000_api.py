@@ -203,8 +203,6 @@ class Foobar2000Api:
                                     new_paths: list[str], target_file_path: str | None = None, position_seconds: float = 0.0,
                                     volume_p: float = 0.0) -> None:
         """Flujo completo: detiene, limpia la playlist, reañade los paths y reanuda el archivo activo en su posición."""
-        self.stop()
-        self.clear_playlist(playlist_id)
         
         if new_paths:
             self.add_playlist_items(playlist_id, new_paths)
