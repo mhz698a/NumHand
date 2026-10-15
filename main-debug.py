@@ -24,7 +24,7 @@ if __name__ == "__main__":
     
     # Si quieres que coja una ruta fija cuando lo ejecutes sin parámetros (en debug):
     # Simplemente reemplaza r"C:\Tu\Ruta\Fija" por la ruta de prueba que uses habitualmente.
-    DEBUG_FOLDER = r"E:\_Internal\2015\12. music\12. b.t.over_the_stars_and_the_flames\Danse macabre, Op. 40.mp3"
+    DEBUG_FOLDER = r"E:\_Internal\2015\12. music\12. b.t.over_the_stars_and_the_flames"
     
     # Comprobamos si se pasaron argumentos por la línea de comandos
     if len(sys.argv) == 1 and DEBUG_FOLDER:

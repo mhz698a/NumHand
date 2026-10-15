@@ -14,7 +14,7 @@ from requests.exceptions import HTTPError, Timeout, RequestException
 BASE_URL = "http://localhost:8880"
 
 class Foobar2000Api:
-    def __init__(self, base_url:str = BASE_URL, timeout:float = 1.0):
+    def __init__(self, base_url:str = BASE_URL, timeout:float = 1.5):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
@@ -80,6 +80,15 @@ class Foobar2000Api:
         """Obtiene la lista de playlists y señala cuál está seleccionada."""
         payload = self._get("/api/playlists")
         return payload.get("playlists", [])
+
+    def match_playlist(self, playlists: dict, log = False) -> str:
+        for playlist in playlists:
+            if playlist.get("isCurrent") is True:
+                playlist_id = playlist.get("id")
+                playlist_title = playlist.get("title")
+                if log:
+                    print(f"Playlist activa encontrada -> ID: {playlist_id} | Título: {playlist_title}")
+                return playlist_id
 
     def add_playlist(self, title: str, set_current: bool = True) -> dict[str, Any]:
         """Crea una playlist y, por defecto, la selecciona como actual."""
@@ -214,30 +223,42 @@ class Foobar2000Api:
 
     def reload_and_restore_playlist(self, playlist_id: str | int, 
                                     new_paths: list[str], target_file_path: str | None = None, position_seconds: float = 0.0,
-                                    volume_p: float = 0.0) -> None:
+                                    volume_p: float = 0.0,
+                                    is_recover_playback = True) -> None:
         """Flujo completo: detiene, limpia la playlist, reañade los paths y reanuda el archivo activo en su posición."""        
-        if new_paths:
-            self.add_playlist_items(playlist_id, new_paths)
-            # Darle un respiro a foobar2000 para que indexe masivamente los elementos insertados
-            time.sleep(0.4 + (len(new_paths) * 0.001)) # Pequeño factor dinámico según el tamaño
+        old_timeout = self.timeout
+        num_files = len(new_paths) if new_paths else 0
         
-        if target_file_path:
-            # Reintentar la búsqueda del índice por si la playlist aún se está procesando
-            target_index = None
-            for intento in range(3):
-                items = self.playlist_items(playlist_id, start=0, end=20000, columns=["%path%"])
-                norm_target = Path(target_file_path).resolve().as_posix().lower()
-                
-                for idx, pitem in enumerate(items):
-                    cols = pitem.get("columns", [])
-                    if cols and Path(cols[0]).resolve().as_posix().lower() == norm_target:
-                        target_index = idx
-                        break
-                
-                if target_index is not None:
-                    break
-                time.sleep(0.3) # Esperar un poco más si todavía no aparece el ítem
+        # Timeout dinámico: base de 3 segundos + 3ms por cada archivo (con un tope mínimo seguro)
+        self.timeout = max(3.0, 3.0 + (num_files * 0.099))
+        
+        try:
+            if new_paths:
+                self.add_playlist_items(playlist_id, new_paths)
+                time.sleep(0.8 + (num_files * 0.001))
             
-            if target_index is not None:
-                time.sleep(0.3)
-                self.play_item_with_position(playlist_id, target_index, position_seconds)
+            if target_file_path:
+                target_index = None
+                for intento in range(3):
+                    items = self.playlist_items(playlist_id, start=0, end=20000, columns=["%path%"])
+                    norm_target = Path(target_file_path).resolve().as_posix().lower()
+                    
+                    for idx, pitem in enumerate(items):
+                        cols = pitem.get("columns", [])
+                        if cols and Path(cols[0]).resolve().as_posix().lower() == norm_target:
+                            target_index = idx
+                            break
+                    
+                    if target_index is not None:
+                        break
+                    time.sleep(0.3)
+                
+                if not is_recover_playback:
+                    self._post(f"/api/player/play/{playlist_id}/0")
+                    return
+                
+                if target_index is not None and is_recover_playback:
+                    time.sleep(0.3)
+                    self.play_item_with_position(playlist_id, target_index, position_seconds)
+        finally:
+            self.timeout = old_timeout  # Restaura siempre el timeout original al terminar

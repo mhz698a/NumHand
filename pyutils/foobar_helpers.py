@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import time
+from wconst import EXTENSION_FILES
 
 def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
     """
@@ -68,7 +69,7 @@ def restore_and_sync_foobar_playlist(state, new_dir, file_entries=None, source_d
     saved_volume = state.get("saved_volume")
 
     try:
-        audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".mp4", ".aac", ".opus")
+        audio_extensions = EXTENSION_FILES
         source_root = Path(source_dir).resolve() if source_dir is not None else None
         destination_root = Path(new_dir).resolve()
         new_audio_paths = []

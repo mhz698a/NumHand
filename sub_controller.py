@@ -1,9 +1,10 @@
-import time
+import traceback
 from pathlib import Path
 from datetime import datetime
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, QSize, QThreadPool
 from PyQt6.QtWidgets import QListWidgetItem, QMenu, QMessageBox
 from sysprog import DualProgressDialog
+from wconst import EXTENSION_FILES
 from widget_left_p import SubfolderListItemWidget
 from pyutils.verbose_folders import VerboseRenameDialog, split_prefixed_name
 from pyutils.year_picker import YearPickerDialog
@@ -65,7 +66,7 @@ class SubFolderController(QObject):
                         target_year = rel_parts[0]
                     if len(rel_parts) >= 3:
                         target_subfolder = rel_parts[2]
-                    elif len(rel_parts) == 2 and not p.name.endswith((".mp3", ".flac", ".wav", ".ogg", ".m4a")):
+                    elif len(rel_parts) == 2 and not p.name.endswith(EXTENSION_FILES):
                         target_subfolder = rel_parts[1]
             except Exception:
                 pass
@@ -207,13 +208,18 @@ class SubFolderController(QObject):
             # La carga es asíncrona: verificar que el modelo siga representando esta carpeta.
             current_folder = getattr(self.main_window, "folder", None)
             if not current_folder or Path(current_folder).resolve() != Path(target_folder).resolve():
+                print("Esta subcarpeta requiere estar cargada para enviarla a Foobar2000")
+                QMessageBox.warning(
+                    self.main_window,
+                    "NumHand",
+                    "Esta subcarpeta requiere estar cargada para enviarla a Foobar2000",
+                )
                 return
-
-            audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".mp4", ".aac", ".opus")
+                
             audio_paths = [
                 str(Path(entry.path).resolve())
                 for entry in self.main_window.model.files
-                if Path(entry.path).suffix.lower() in audio_extensions
+                if Path(entry.path).suffix.lower() in EXTENSION_FILES
             ]
             if not audio_paths:
                 QMessageBox.information(
@@ -223,41 +229,25 @@ class SubFolderController(QObject):
                 )
                 return
 
-            # Usar la playlist del elemento activo; si no hay elemento activo,
-            # reutilizar la playlist actual o crear una nueva.
-            player_info = self.foobar.player().get("player", {})
-            active_item = player_info.get("activeItem") or {}
-            playlist_id = active_item.get("playlistId")
-
-            if playlist_id is None:
-                current_playlist = next(
-                    (playlist for playlist in self.foobar.playlists() if playlist.get("isCurrent")),
-                    None,
-                )
-                if current_playlist:
-                    playlist_id = current_playlist.get("id")
-
-            if playlist_id is None:
-                created_playlist = self.foobar.add_playlist(target_folder.name, set_current=True)
-                playlist_id = created_playlist.get("id")
-
-            if playlist_id is None:
-                raise RuntimeError("No se pudo determinar ni crear una playlist de destino.")
+            player_info = self.foobar.playlists()
+            playlist_id = self.foobar.match_playlist(player_info)
+            
+            if playlist_id is None or playlist_id == "":
+                raise RuntimeError("Foobar2000 No esta abierto")
 
             self.foobar.stop()
             self.foobar.clear_playlist(playlist_id)
-            self.foobar.add_playlist_items(playlist_id, audio_paths)
-
-            # Foobar2000 puede necesitar tiempo para indexar una inserción grande.
-            time.sleep(0.4 + len(audio_paths) * 0.001)
-            self.foobar.play_item_single(playlist_id, 0)
-
+            self.foobar.reload_and_restore_playlist(playlist_id, audio_paths, audio_paths[0], 0.0, is_recover_playback=False)
+            select_foobar2000_playing_file(self.main_window, current_path=audio_paths[0])
+            
         except Exception as exc:
-            QMessageBox.warning(
-                self.main_window,
-                "Foobar2000",
-                f"La carpeta se cargó en NumHand, pero no se pudo iniciar la reproducción:\n{exc}",
-            )
+            self.msg = QMessageBox(self.main_window)
+            self.msg.setIcon(QMessageBox.Icon.Warning)
+            self.msg.setWindowTitle("Foobar2000")
+            self.msg.setText("La carpeta se cargó en NumHand, pero no se pudo iniciar la reproducción")
+            self.msg.setInformativeText(f"Detalle: {exc}")            
+            self.msg.setDetailedText(traceback.format_exc())
+            self.msg.exec()
 
     def _on_subfolder_changed(self, current, previous):
         if previous:
@@ -339,13 +329,12 @@ class SubFolderController(QObject):
         target_dir = base / sub_name
 
         menu = QMenu(self.main_window)
-        act_load = menu.addAction("Load Folder")
-        act_load_play = menu.addAction("Load and Play Folder")
+        act_load = menu.addAction("Load This SubFolder")
+        act_load_play = menu.addAction("Load and Play this SubFolder")
         menu.addSeparator()
 
         act_new = menu.addAction("Crear Subcarpeta Aqui")
         act_rename = menu.addAction("Renombrar esta Subcarpeta")
-
         act_del = menu.addAction("Eliminar esta subcarpeta")
         is_empty = target_dir.exists() and is_dir_empty(target_dir)
         act_del.setEnabled(is_empty)
