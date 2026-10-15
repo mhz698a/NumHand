@@ -216,7 +216,12 @@ class SubFolderController(QObject):
         try:
             files_to_check = [str(target_dir)]
             if target_dir.is_dir():
-                if self._is_folder_currently_open(target_dir) and hasattr(self.main_window, "model"):
+                current_folder = getattr(self.main_window, "folder", None)
+                same_folder_is_loaded = (
+                    current_folder is not None
+                    and Path(current_folder).resolve() == Path(target_dir).resolve()
+                )
+                if same_folder_is_loaded and hasattr(self.main_window, "model"):
                     for file_entry in self.main_window.model.files:
                         files_to_check.append(str(file_entry.path))
                 else:
@@ -474,9 +479,12 @@ class SubFolderController(QObject):
         except Exception:
             pass
 
-        # Construir la ruta destino correcta basada en el año seleccionado en el diálogo
+        # FolderMoveTask cambia el prefijo al del año destino; calcular exactamente esa ruta
+        # para que la ruta de reproducción guardada coincida con real_dest_dir.
         dest_base_path = self.build_music_ahead_path(dest_year)
-        new_dir = dest_base_path / src_dir.name
+        dest_prefix = f"{int(dest_year) - 2003:02d}."
+        dest_folder_name = f"{dest_prefix} {strip_year_prefix(src_dir.name)}"
+        new_dir = dest_base_path / dest_folder_name
         
         # Capturar los archivos de origen antes de mover y antes de iniciar una recarga asíncrona.
         try:
