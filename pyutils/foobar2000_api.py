@@ -76,6 +76,19 @@ class Foobar2000Api:
         params = {"columns": columns} if columns else {}
         return self._get("/api/player", params=params)
 
+    def playlists(self) -> list[dict[str, Any]]:
+        """Obtiene la lista de playlists y señala cuál está seleccionada."""
+        payload = self._get("/api/playlists")
+        return payload.get("playlists", [])
+
+    def add_playlist(self, title: str, set_current: bool = True) -> dict[str, Any]:
+        """Crea una playlist y, por defecto, la selecciona como actual."""
+        payload = self._post(
+            "/api/playlists/add",
+            json={"title": title, "setCurrent": set_current},
+        )
+        return payload or {}
+
 
     def playlist_items(self, playlist_id: int, start: int = 0, end: int = 20000,
                        columns: list[str] | None = None,) -> list[dict[str, Any]]:
