@@ -159,6 +159,7 @@ def capture_foobar_file_move_state(
         "source_folder": str(source_folder) if source_folder is not None else None,
         "playlist_matches_source_folder": False,
         "should_sync_source_playlist": False,
+        "playback_state_captured": False,
         "capture_error": None,
     }
     if foobar_api is None:
@@ -191,10 +192,6 @@ def capture_foobar_file_move_state(
             except Exception as playlist_error:
                 state["playlist_match_error"] = str(playlist_error)
 
-        state["should_sync_source_playlist"] = bool(
-            state["playlist_matches_source_folder"]
-        )
-
         player_info = foobar_api.player().get("player", {})
         active_item = player_info.get("activeItem") or {}
         volume_info = player_info.get("volume") or {}
@@ -209,6 +206,12 @@ def capture_foobar_file_move_state(
         if not playing_path:
             playing_path = foobar_api.current_path()
         state["playing_path"] = playing_path
+        state["playback_state_captured"] = True
+        # No sincronizar si no se pudo leer el estado completo del reproductor:
+        # en ese caso no podemos descartar que la pista activa vaya a moverse.
+        state["should_sync_source_playlist"] = bool(
+            state["playlist_matches_source_folder"]
+        )
         if not playing_path:
             return state
 
@@ -309,6 +312,7 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
     if not playback_affected and not should_sync_source_playlist:
         return
 
+    playback_restored_successfully = False
     if playback_affected:
         original_path = state.get("playing_path")
         target_path = state.get("new_path") if successful else original_path
@@ -371,6 +375,7 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
 
                 if state.get("saved_playback_state") == "playing":
                     fb_api.play()
+                playback_restored_successfully = True
             else:
                 print(
                     "No se encontró una ruta válida para restaurar la canción "
@@ -404,6 +409,12 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
             fb_api.select_playlist(active_playlist_id)
 
         if not should_sync_source_playlist:
+            return
+        if playback_affected and not playback_restored_successfully:
+            print(
+                "Se omitió la sincronización de la playlist original porque no "
+                "se pudo confirmar la restauración segura del playback."
+            )
             return
 
         source_path = Path(source_folder)
