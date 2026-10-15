@@ -3,9 +3,11 @@ import sys
 import argparse
 import ctypes
 import platform
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
 from winmain import WMain
+from pyutils.mutex import SingleInstanceMutex
+from pyutils.error_handler import setup_exception_hook
 
 if platform.system() == "Windows":
     my_app_id = 'EtudeTools.NumHand.Numhand.1.0'
@@ -22,7 +24,7 @@ if __name__ == "__main__":
     
     # Si quieres que coja una ruta fija cuando lo ejecutes sin parámetros (en debug):
     # Simplemente reemplaza r"C:\Tu\Ruta\Fija" por la ruta de prueba que uses habitualmente.
-    DEBUG_FOLDER = r"E:\_Internal\2015\12. music\12. b.t.over_the_stars_and_the_flames\Danse macabre, Op. 40.mp3"
+    DEBUG_FOLDER = r"E:\_Internal\2015\12. music\12. b.t.over_the_stars_and_the_flames"
     
     # Comprobamos si se pasaron argumentos por la línea de comandos
     if len(sys.argv) == 1 and DEBUG_FOLDER:
@@ -47,6 +49,16 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(ICON_PATH))
+    setup_exception_hook()
+
+    mutex = SingleInstanceMutex()
+    if not mutex.try_lock():
+        QMessageBox.warning(
+            None,
+            "Aplicación ya en ejecución",
+            "La aplicación NumHand ya se encuentra ejecutándose."
+        )
+        sys.exit(0)
     
     # Nota: Asegúrate de adaptar no_select_playing según si usas o no el argumento `--no-select-playing` en debug.
     _wmain = WMain(path_input, select_playing=not no_select_playing)

@@ -8,8 +8,8 @@ from mutagen.mp4 import MP4Cover
 
 from pyutils.wctime import setctime_blocking
 
+from wconst import SUPPORTED_EXTENSIONS, MP3_EXT
 
-SUPPORTED_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".m4v"}
 
 def read_cover_art(file_path: Path) -> bytes:
     """Extrae los bytes de la carátula frontal (APIC para MP3, covr para MP4)."""
@@ -22,7 +22,7 @@ def read_cover_art(file_path: Path) -> bytes:
             return None
 
         ext = path.suffix.lower()
-        if ext == ".mp3":
+        if ext == MP3_EXT:
             id3 = audio.tags
             for key in id3.keys():
                 if key.startswith("APIC") or key == "APIC":
@@ -64,7 +64,7 @@ def write_cover_art_data(file_path: Path, data: bytes, mime_type: str = "image/j
         if audio is None:
             return
 
-        if ext == ".mp3":
+        if ext == MP3_EXT:
             if audio.tags is None:
                 audio.add_tags()
             id3 = audio.tags
@@ -150,7 +150,7 @@ def remove_cover_art(file_path: Path) -> bool:
         if audio is None:
             return
 
-        if ext == ".mp3":
+        if ext == MP3_EXT:
             if audio.tags is not None:
                 id3 = audio.tags
                 keys_to_remove = [k for k in id3.keys() if k.startswith("APIC")]

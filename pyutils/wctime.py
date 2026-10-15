@@ -1,8 +1,12 @@
 # wctime.py
 import ctypes
 import time
+import platform
 
-kernel32 = ctypes.windll.kernel32
+if platform.system() == "Windows":
+    kernel32 = ctypes.windll.kernel32
+else:
+    kernel32 = None
 
 FILE_WRITE_ATTRIBUTES = 0x100
 OPEN_EXISTING = 3
@@ -21,6 +25,8 @@ def ts_to_filetime(ts: float) -> FILETIME:
     return FILETIME(timestamp & 0xFFFFFFFF, timestamp >> 32)
 
 def _set_creation_time(path: str, ts: float):
+    if not kernel32:
+        return
     ft = ts_to_filetime(ts)
 
     handle = kernel32.CreateFileW(

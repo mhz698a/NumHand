@@ -4,9 +4,8 @@ import mutagen
 from pathlib import Path
 
 from pyutils.wctime import setctime_blocking
+from wconst import SUPPORTED_EXTENSIONS, MP3_EXT
 
-
-SUPPORTED_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".m4v"}
 
 def write_file_tags(file_path: Path, new_tags: dict) -> bool:
     """Escribe metadatos respaldando y restaurando las fechas originales del archivo."""
@@ -24,7 +23,7 @@ def write_file_tags(file_path: Path, new_tags: dict) -> bool:
 
     try:
         ext = path.suffix.lower()
-        if ext == ".mp3":
+        if ext == MP3_EXT:
             audio = mutagen.File(str(path))
             if audio is None or audio.tags is None:
                 audio.add_tags()

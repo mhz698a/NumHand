@@ -2,21 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import mutagen
 
-SUPPORTED_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".m4v"}
-
-DEFAULT_TAGS = {
-    "title": "",
-    "artist": "",
-    "album": "",
-    "year": "",
-    "date": "",
-    "track": "",
-    "disc": "",
-    "genre": "",
-    "comment": "",
-    "mtime": "",
-    "ctime": ""
-}
+from wconst import SUPPORTED_EXTENSIONS, MP3_EXT, DEFAULT_TAGS
 
 def _parse_track_disc(value):
     """Formatea valores de tuplas o cadenas como track/disc (ej. 1/12)."""
@@ -42,7 +28,7 @@ def read_file_tags(file_path: Path) -> dict:
 
         ext = path.suffix.lower()
 
-        if ext == ".mp3":
+        if ext == MP3_EXT:
             # ID3 Tags
             id3 = audio.tags
             tags["title"] = str(id3.get("TIT2", ""))

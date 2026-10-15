@@ -1,9 +1,10 @@
-import time
+import traceback
 from pathlib import Path
 from datetime import datetime
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, QSize, QThreadPool
 from PyQt6.QtWidgets import QListWidgetItem, QMenu, QMessageBox
 from sysprog import DualProgressDialog
+from wconst import EXTENSION_FILES
 from widget_left_p import SubfolderListItemWidget
 from pyutils.verbose_folders import VerboseRenameDialog, split_prefixed_name
 from pyutils.year_picker import YearPickerDialog
@@ -55,17 +56,17 @@ class SubFolderController(QObject):
         target_subfolder = None
 
         if folder_path:
-            p = Path(folder_path)
-            parts = p.parts
             try:
-                base_parts = Path(BASE_ROOT).parts
-                if parts[:len(base_parts)] == base_parts:
-                    rel_parts = parts[len(base_parts):]
+                p = Path(folder_path).resolve()
+                base_p = Path(BASE_ROOT).resolve()
+                if p == base_p or base_p in p.parents:
+                    rel = p.relative_to(base_p)
+                    rel_parts = rel.parts
                     if len(rel_parts) >= 1:
                         target_year = rel_parts[0]
                     if len(rel_parts) >= 3:
                         target_subfolder = rel_parts[2]
-                    elif len(rel_parts) == 2 and not p.name.endswith((".mp3", ".flac", ".wav", ".ogg", ".m4a")):
+                    elif len(rel_parts) == 2 and not p.name.endswith(EXTENSION_FILES):
                         target_subfolder = rel_parts[1]
             except Exception:
                 pass
@@ -173,17 +174,80 @@ class SubFolderController(QObject):
         year_item = self.panel.YearSelectorCells.currentItem()
         if not year_item:
             return
-        
-        year = year_item.text()
-        base_path = self.build_music_ahead_path(year)
-        target_folder = base_path / subfolder_name
 
-        if target_folder.exists() and target_folder.is_dir():
-            if hasattr(self.main_window, "file_list"):
-                self.main_window.file_list.clearSelection()
+        target_folder = self.build_music_ahead_path(year_item.text()) / subfolder_name
+        self._load_subfolder(target_folder)
 
-            self.main_window.folder = target_folder
-            self.main_window.file_utils.load_folder(self.main_window, self.main_window.model)
+    def _load_subfolder(self, target_folder: Path, on_loaded=None):
+        """Hace lo mismo que el botón de una subcarpeta, con callback opcional al terminar."""
+        target_folder = Path(target_folder)
+        if not target_folder.exists() or not target_folder.is_dir():
+            return
+
+        if hasattr(self.main_window, "file_list"):
+            self.main_window.file_list.clearSelection()
+
+        self.main_window.folder = target_folder
+        self.main_window.file_utils.load_folder(
+            self.main_window,
+            self.main_window.model,
+            on_loaded=on_loaded,
+        )
+
+    def _load_and_play_subfolder(self, target_folder: Path):
+        """Carga una subcarpeta y después reemplaza la playlist para reproducir desde el primer audio."""
+        target_folder = Path(target_folder).resolve()
+        self._load_subfolder(
+            target_folder,
+            on_loaded=lambda folder=target_folder: self._play_loaded_subfolder(folder),
+        )
+
+    def _play_loaded_subfolder(self, target_folder: Path):
+        """Reemplaza la playlist de Foobar2000 por los audios cargados y reproduce el primer elemento."""
+        try:
+            # La carga es asíncrona: verificar que el modelo siga representando esta carpeta.
+            current_folder = getattr(self.main_window, "folder", None)
+            if not current_folder or Path(current_folder).resolve() != Path(target_folder).resolve():
+                print("Esta subcarpeta requiere estar cargada para enviarla a Foobar2000")
+                QMessageBox.warning(
+                    self.main_window,
+                    "NumHand",
+                    "Esta subcarpeta requiere estar cargada para enviarla a Foobar2000",
+                )
+                return
+                
+            audio_paths = [
+                str(Path(entry.path).resolve())
+                for entry in self.main_window.model.files
+                if Path(entry.path).suffix.lower() in EXTENSION_FILES
+            ]
+            if not audio_paths:
+                QMessageBox.information(
+                    self.main_window,
+                    "Foobar2000",
+                    "La carpeta cargada no contiene archivos de audio compatibles.",
+                )
+                return
+
+            player_info = self.foobar.playlists()
+            playlist_id = self.foobar.match_playlist(player_info)
+            
+            if playlist_id is None or playlist_id == "":
+                raise RuntimeError("Foobar2000 No esta abierto")
+
+            self.foobar.stop()
+            self.foobar.clear_playlist(playlist_id)
+            self.foobar.reload_and_restore_playlist(playlist_id, audio_paths, audio_paths[0], 0.0, is_recover_playback=False)
+            select_foobar2000_playing_file(self.main_window, current_path=audio_paths[0])
+            
+        except Exception as exc:
+            self.msg = QMessageBox(self.main_window)
+            self.msg.setIcon(QMessageBox.Icon.Warning)
+            self.msg.setWindowTitle("Foobar2000")
+            self.msg.setText("La carpeta se cargó en NumHand, pero no se pudo iniciar la reproducción")
+            self.msg.setInformativeText(f"Detalle: {exc}")            
+            self.msg.setDetailedText(traceback.format_exc())
+            self.msg.exec()
 
     def _on_subfolder_changed(self, current, previous):
         if previous:
@@ -216,12 +280,20 @@ class SubFolderController(QObject):
         try:
             files_to_check = [str(target_dir)]
             if target_dir.is_dir():
-                # Recopilar algunos archivos internos para comprobar bloqueo de manera efectiva
-                for p in target_dir.rglob("*"):
-                    if p.is_file():
-                        files_to_check.append(str(p))
-                        if len(files_to_check) > 50: # Limitar para rendimiento
-                            break
+                current_folder = getattr(self.main_window, "folder", None)
+                same_folder_is_loaded = (
+                    current_folder is not None
+                    and Path(current_folder).resolve() == Path(target_dir).resolve()
+                )
+                if same_folder_is_loaded and hasattr(self.main_window, "model"):
+                    for file_entry in self.main_window.model.files:
+                        files_to_check.append(str(file_entry.path))
+                else:
+                    for p in target_dir.iterdir():
+                        if p.is_file():
+                            files_to_check.append(str(p))
+                            if len(files_to_check) > 50: # Limitar para rendimiento
+                                break
             
             locking_apps = get_locking_processes(files_to_check, omit_fb=True)
             if locking_apps:
@@ -257,9 +329,12 @@ class SubFolderController(QObject):
         target_dir = base / sub_name
 
         menu = QMenu(self.main_window)
+        act_load = menu.addAction("Load This SubFolder")
+        act_load_play = menu.addAction("Load and Play this SubFolder")
+        menu.addSeparator()
+
         act_new = menu.addAction("Crear Subcarpeta Aqui")
         act_rename = menu.addAction("Renombrar esta Subcarpeta")
-        
         act_del = menu.addAction("Eliminar esta subcarpeta")
         is_empty = target_dir.exists() and is_dir_empty(target_dir)
         act_del.setEnabled(is_empty)
@@ -270,8 +345,12 @@ class SubFolderController(QObject):
         if not action:
             return
 
-        # Delegamos cada acción a su propio método modularizado
-        if action == act_new:
+        # Las dos primeras acciones cargan la carpeta seleccionada por el menú contextual.
+        if action == act_load:
+            self._load_subfolder(target_dir)
+        elif action == act_load_play:
+            self._load_and_play_subfolder(target_dir)
+        elif action == act_new:
             self._create_subfolder(year, base)
         elif action == act_rename:
             self.rename_selected_subfolder(sub_name, target_dir, year)
@@ -324,6 +403,29 @@ class SubFolderController(QObject):
             except Exception as e:
                 QMessageBox.critical(self.main_window, "Error", f"No se pudo eliminar:\n{e}")
 
+    def _snapshot_file_entries_for_folder(self, target_dir: Path):
+        """Obtiene una instantánea completa de los archivos directos antes de mutar la carpeta."""
+        target_dir = Path(target_dir).resolve()
+        current_folder = getattr(self.main_window, "folder", None)
+        model = getattr(self.main_window, "model", None)
+
+        # Solo reutilizar el modelo cuando corresponde exactamente a la carpeta origen.
+        if current_folder and model is not None:
+            try:
+                if Path(current_folder).resolve() == target_dir:
+                    return list(model.files)
+            except (OSError, TypeError, ValueError):
+                pass
+
+        # Si la carpeta no está cargada en el panel, consultar el índice de archivos
+        # de esa carpeta; no se debe tomar model.files de una carpeta distinta.
+        file_utils = getattr(self.main_window, "file_utils", None)
+        folder_cache = getattr(file_utils, "folder_cache", None)
+        if folder_cache is not None:
+            return list(folder_cache.list_files(target_dir))
+
+        return [path for path in target_dir.iterdir() if path.is_file()]
+
     def _is_folder_currently_open(self, target_dir: Path) -> bool:
         """Verifica si la carpeta o alguna superior está abierta en NumHand."""
         if hasattr(self.main_window, "folder") and self.main_window.folder:
@@ -366,6 +468,16 @@ class SubFolderController(QObject):
         # 1. Verificar si la carpeta está abierta actualmente en la interfaz
         is_current_folder_open = self._is_folder_currently_open(target_dir)
 
+        # Guardar la lista antes del cambio de ruta y antes de cualquier recarga asíncrona.
+        try:
+            file_entries = self._snapshot_file_entries_for_folder(target_dir)
+        except Exception as e:
+            QMessageBox.critical(
+                self.main_window, "Error",
+                f"No se pudo obtener la lista de archivos de origen:\n{e}"
+            )
+            return
+
         # 2. Capturar estado de reproducción de Foobar2000 antes de mover/renombrar
         fb_api = None
         try:
@@ -373,20 +485,23 @@ class SubFolderController(QObject):
         except Exception:
             pass
 
-        # Calculamos de una vez la ruta nueva para el archivo en reproducción si aplica
-        temp_new_dir_for_calc = target_dir.parent / final_name
-        foobar_state = capture_foobar_playback_state(fb_api, target_dir, temp_new_dir_for_calc)
-
-        # 3. Comprobar archivos en uso con syswall
+        # 3. Comprobar archivos en uso antes de detener la reproducción.
         if not self._check_files_in_use(target_dir):
             return
+
+        # Capturar el estado y calcular la nueva ruta de reproducción.
+        temp_new_dir_for_calc = target_dir.parent / final_name
+        foobar_state = capture_foobar_playback_state(fb_api, target_dir, temp_new_dir_for_calc)
 
         try:
             # Renombrar carpeta física
             target_dir.rename(new_dir)
 
-            # 4. Sincronizar Foobar2000 usando el helper centralizado
-            restore_and_sync_foobar_playlist(foobar_state, new_dir)
+            # 4. Sincronizar Foobar2000 con la instantánea de archivos del directorio origen
+            restore_and_sync_foobar_playlist(
+                foobar_state, new_dir,
+                file_entries=file_entries, source_dir=target_dir
+            )
 
             # 5. Si la carpeta estaba abierta en la app, actualizar ruta y recargar vista
             if is_current_folder_open:
@@ -435,15 +550,29 @@ class SubFolderController(QObject):
         except Exception:
             pass
 
-        # Construir la ruta destino correcta basada en el año seleccionado en el diálogo
+        # FolderMoveTask cambia el prefijo al del año destino; calcular exactamente esa ruta
+        # para que la ruta de reproducción guardada coincida con real_dest_dir.
         dest_base_path = self.build_music_ahead_path(dest_year)
-        new_dir = dest_base_path / src_dir.name
+        dest_prefix = f"{int(dest_year) - 2003:02d}."
+        dest_folder_name = f"{dest_prefix} {strip_year_prefix(src_dir.name)}"
+        new_dir = dest_base_path / dest_folder_name
         
-        # Capturar el estado de reproducción usando la nueva ruta correcta
-        foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
+        # Capturar los archivos de origen antes de mover y antes de iniciar una recarga asíncrona.
+        try:
+            file_entries = self._snapshot_file_entries_for_folder(src_dir)
+        except Exception as e:
+            QMessageBox.critical(
+                self.main_window, "Error",
+                f"No se pudo obtener la lista de archivos de origen:\n{e}"
+            )
+            return
 
+        # Comprobar bloqueos antes de detener la reproducción.
         if not self._check_files_in_use(src_dir):
             return
+
+        # Capturar el estado de reproducción usando la nueva ruta correcta.
+        foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
 
         self.progress_dialog = DualProgressDialog("Mover carpeta a otro año", self.main_window)
         self.progress_dialog.show()
@@ -479,7 +608,10 @@ class SubFolderController(QObject):
             subfolders = self.fetch_subfolders_for_year(dest_year)
             self._populate_subfolders_ui(subfolders, select_subfolder=real_dest_dir.name)
             
-            restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir))            
+            restore_and_sync_foobar_playlist(
+                foobar_state, str(real_dest_dir),
+                file_entries=file_entries, source_dir=src_dir
+            )
             
         def on_error(err_msg):
             self.progress_dialog.close()

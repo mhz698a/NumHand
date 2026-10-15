@@ -6,7 +6,7 @@ import time
 
 from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
-from PyQt6.QtCore import QThreadPool, Qt
+from PyQt6.QtCore import QThreadPool, Qt, QCoreApplication
 
 import syswall
 
@@ -44,6 +44,8 @@ class FileUtils:
             return
 
         parent.folder = Path(folder)
+        if hasattr(parent, "sub_controller"):
+            parent.sub_controller.sync_with_current_folder()
         self.load_folder(parent, model)
         
     def select_folder_import(self, parent, model, folder_path):
@@ -51,6 +53,8 @@ class FileUtils:
             return
 
         parent.folder = Path(folder_path)
+        if hasattr(parent, "sub_controller"):
+            parent.sub_controller.sync_with_current_folder()
         self.load_folder(parent, model)
         
 
@@ -67,6 +71,7 @@ class FileUtils:
 
         def on_finished(files_loaded):
             self.progress_dialog.close()
+            QCoreApplication.processEvents()
             if on_loaded is not None:
                 on_loaded()
 
