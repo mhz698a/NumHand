@@ -1,4 +1,4 @@
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QCoreApplication
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -48,6 +48,11 @@ class DualProgressDialog(QDialog):
         layout.addSpacing(10)
         layout.addLayout(button_layout)
 
+    def show(self):
+        super().show()
+        self.repaint()
+        QCoreApplication.processEvents()
+
     def _on_cancel_clicked(self):
         self.canceled.emit()
         self.reject()
@@ -76,3 +81,6 @@ class DualProgressDialog(QDialog):
             self.main_bar.setValue(main_current)
         else:
             self.main_bar.setRange(0, 0)
+
+        self.repaint()
+        QCoreApplication.processEvents()

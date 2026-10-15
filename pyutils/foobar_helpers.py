@@ -47,27 +47,31 @@ def capture_foobar_playback_state(foobar_api, target_dir, new_dir=None):
         pass
     return state
 
-def restore_and_sync_foobar_playlist(state, new_dir):
+def restore_and_sync_foobar_playlist(state, new_dir, file_entries=None):
     """Reconstruye la playlist con las nuevas rutas de new_dir (tras cambio de carpeta) 
-    y reanuda la reproducción localizando el archivo por su nombre."""
+    y reanuda la reproducción localizando el archivo por su nombre sin usar glob/rglob."""
     if not state.get("fb_api") or state.get("saved_playlist_id") is None:
         return
-    
-    if not os.path.exists(new_dir):
-        raise NotADirectoryError(f"Este directorio no existe y/o esta mal calculado: {new_dir}")
     
     fb_api = state["fb_api"]
     playlist_id = state["saved_playlist_id"]
     saved_volume = state.get("saved_volume")
     
     try:
-        # 1. Escanear todos los archivos de audio en la NUEVA ubicación
-        audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", "mp4",".aac", ".opus")
-        new_audio_paths = [
-            str(Path(f).resolve()) for f in Path(new_dir).rglob("*")
-            if f.is_file() and f.suffix.lower() in audio_extensions
-        ]
-        
+        audio_extensions = (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".mp4", ".aac", ".opus")
+        new_audio_paths = []
+
+        if file_entries:
+            for item in file_entries:
+                p = Path(item.path if hasattr(item, "path") else item)
+                if p.suffix.lower() in audio_extensions:
+                    new_p = Path(new_dir) / p.name
+                    new_audio_paths.append(str(new_p.resolve()))
+        else:
+            saved_playing = state.get("saved_file_path") or state.get("new_path_for_playing")
+            if saved_playing:
+                new_audio_paths.append(str(Path(saved_playing).resolve()))
+
         if not new_audio_paths:
             return
 

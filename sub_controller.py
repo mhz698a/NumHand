@@ -55,12 +55,12 @@ class SubFolderController(QObject):
         target_subfolder = None
 
         if folder_path:
-            p = Path(folder_path)
-            parts = p.parts
             try:
-                base_parts = Path(BASE_ROOT).parts
-                if parts[:len(base_parts)] == base_parts:
-                    rel_parts = parts[len(base_parts):]
+                p = Path(folder_path).resolve()
+                base_p = Path(BASE_ROOT).resolve()
+                if p == base_p or base_p in p.parents:
+                    rel = p.relative_to(base_p)
+                    rel_parts = rel.parts
                     if len(rel_parts) >= 1:
                         target_year = rel_parts[0]
                     if len(rel_parts) >= 3:
@@ -216,12 +216,15 @@ class SubFolderController(QObject):
         try:
             files_to_check = [str(target_dir)]
             if target_dir.is_dir():
-                # Recopilar algunos archivos internos para comprobar bloqueo de manera efectiva
-                for p in target_dir.rglob("*"):
-                    if p.is_file():
-                        files_to_check.append(str(p))
-                        if len(files_to_check) > 50: # Limitar para rendimiento
-                            break
+                if self._is_folder_currently_open(target_dir) and hasattr(self.main_window, "model"):
+                    for file_entry in self.main_window.model.files:
+                        files_to_check.append(str(file_entry.path))
+                else:
+                    for p in target_dir.iterdir():
+                        if p.is_file():
+                            files_to_check.append(str(p))
+                            if len(files_to_check) > 50: # Limitar para rendimiento
+                                break
             
             locking_apps = get_locking_processes(files_to_check, omit_fb=True)
             if locking_apps:
@@ -385,8 +388,9 @@ class SubFolderController(QObject):
             # Renombrar carpeta física
             target_dir.rename(new_dir)
 
-            # 4. Sincronizar Foobar2000 usando el helper centralizado
-            restore_and_sync_foobar_playlist(foobar_state, new_dir)
+            # 4. Sincronizar Foobar2000 usando el helper centralizado sin I/O
+            file_entries = self.main_window.model.files if is_current_folder_open else None
+            restore_and_sync_foobar_playlist(foobar_state, new_dir, file_entries=file_entries)
 
             # 5. Si la carpeta estaba abierta en la app, actualizar ruta y recargar vista
             if is_current_folder_open:
@@ -479,7 +483,8 @@ class SubFolderController(QObject):
             subfolders = self.fetch_subfolders_for_year(dest_year)
             self._populate_subfolders_ui(subfolders, select_subfolder=real_dest_dir.name)
             
-            restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir))            
+            file_entries = self.main_window.model.files if is_current_folder_open else None
+            restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir), file_entries=file_entries)
             
         def on_error(err_msg):
             self.progress_dialog.close()
