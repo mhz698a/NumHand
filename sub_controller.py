@@ -256,7 +256,7 @@ class SubFolderController(QObject):
             QMessageBox.warning(
                 self.main_window,
                 "Foobar2000",
-                f"La carpeta se cargó en NumHand, pero no se pudo iniciar la reproducción:\\n{exc}",
+                f"La carpeta se cargó en NumHand, pero no se pudo iniciar la reproducción:\n{exc}",
             )
 
     def _on_subfolder_changed(self, current, previous):
