@@ -98,6 +98,27 @@ class Foobar2000Api:
         )
         return payload or {}
 
+    def select_playlist(self, playlist_id: str | int) -> None:
+        """Selecciona la playlist activa mediante POST /api/playlists."""
+        self._post("/api/playlists", json={"current": playlist_id})
+
+    def play(self) -> None:
+        """Inicia o reanuda la reproducción actual."""
+        self._post("/api/player/play")
+
+    def pause(self) -> None:
+        """Pausa la reproducción actual."""
+        self._post("/api/player/pause")
+
+    def restore_volume_state(
+        self, volume: float | None, is_muted: bool = False
+    ) -> None:
+        """Restaura el volumen y el estado de mute guardados previamente."""
+        payload: dict[str, Any] = {"isMuted": bool(is_muted)}
+        if volume is not None:
+            payload["volume"] = volume
+        self._post("/api/player", json=payload)
+
 
     def playlist_items(self, playlist_id: int, start: int = 0, end: int = 20000,
                        columns: list[str] | None = None,) -> list[dict[str, Any]]:
