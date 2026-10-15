@@ -120,7 +120,7 @@ class Foobar2000Api:
         self._post("/api/player", json=payload)
 
 
-    def playlist_items(self, playlist_id: int, start: int = 0, end: int = 20000,
+    def playlist_items(self, playlist_id: str | int, start: int = 0, end: int = 20000,
                        columns: list[str] | None = None,) -> list[dict[str, Any]]:
         payload = self._get(
             f"/api/playlists/{playlist_id}/items/{start}:{end}",
