@@ -642,7 +642,11 @@ def move_selected_files(parent, model):
         parent.file_utils.sync_folder_cache(source_folder)
         parent.file_utils.sync_folder_cache(target_folder)
         model.set_all_checked(False)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -665,7 +669,11 @@ def move_selected_files(parent, model):
             successful=False,
         )
         QMessageBox.critical(parent, "Error", message)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
 
     task.signals.progress.connect(progress_dialog.update_progress)
     task.signals.finished.connect(on_finished)
