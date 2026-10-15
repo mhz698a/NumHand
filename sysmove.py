@@ -618,6 +618,7 @@ def move_selected_files(parent, model):
     foobar_state = capture_foobar_file_move_state(
         Foobar2000Api(),
         old_to_new_paths,
+        source_folder=source_folder,
     )
 
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
