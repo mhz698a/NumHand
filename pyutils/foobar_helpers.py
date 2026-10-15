@@ -122,16 +122,24 @@ def restore_and_sync_foobar_playlist(state, new_dir, file_entries=None, source_d
 
 def _normalize_move_path(path):
     """Normaliza rutas para compararlas sin depender de mayúsculas o separadores."""
-    return os.path.normcase(os.path.normpath(os.fspath(path)))
+    normalized = os.path.normcase(
+        os.path.normpath(os.path.abspath(os.fspath(path)))
+    )
+    return normalized.casefold()
 
 
-def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
+def capture_foobar_file_move_state(
+    foobar_api,
+    old_to_new_paths,
+    source_folder=None,
+):
     """
-    Guarda el estado de foobar2000 antes de mover archivos seleccionados.
+    Captura el contexto de foobar2000 antes de un movimiento.
 
-    Si el archivo reproducido está entre los seleccionados, lo deja preparado
-    para reanudarlo desde una playlist auxiliar después del movimiento.
-    old_to_new_paths relaciona cada ruta de origen con su ruta final prevista.
+    La playlist activa solo se sincronizará con NumHand cuando el directorio
+    del primer elemento de esa playlist coincida con source_folder. Si no
+    coincide, la playlist original se conserva intacta; únicamente se usa una
+    playlist auxiliar cuando uno de los archivos movidos es el que se reproduce.
     """
     state = {
         "fb_api": foobar_api,
@@ -148,6 +156,10 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
         "auxiliary_playlist_id": None,
         "auxiliary_playlist_title": "auxiliar",
         "player_stopped": False,
+        "source_folder": str(source_folder) if source_folder is not None else None,
+        "playlist_matches_source_folder": False,
+        "should_sync_source_playlist": False,
+        "capture_error": None,
     }
     if foobar_api is None:
         return state
@@ -158,8 +170,30 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
             (playlist for playlist in playlists if playlist.get("isCurrent") is True),
             None,
         )
-        if current_playlist is not None:
-            state["active_playlist_id"] = current_playlist.get("id")
+        if current_playlist is None or current_playlist.get("id") is None:
+            state["capture_error"] = "No se pudo determinar la playlist activa."
+            return state
+
+        active_playlist_id = current_playlist.get("id")
+        state["active_playlist_id"] = active_playlist_id
+
+        # Una playlist vacía o un error al consultar su primer elemento no se
+        # consideran coincidencia: en ese caso nunca la modificamos.
+        if source_folder is not None:
+            try:
+                first_item_path = foobar_api.first_playlist_item_path(active_playlist_id)
+                if first_item_path:
+                    first_item_parent = str(Path(first_item_path).parent)
+                    state["playlist_matches_source_folder"] = (
+                        _normalize_move_path(first_item_parent)
+                        == _normalize_move_path(source_folder)
+                    )
+            except Exception as playlist_error:
+                state["playlist_match_error"] = str(playlist_error)
+
+        state["should_sync_source_playlist"] = bool(
+            state["playlist_matches_source_folder"]
+        )
 
         player_info = foobar_api.player().get("player", {})
         active_item = player_info.get("activeItem") or {}
@@ -179,18 +213,24 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
             return state
 
         normalized_mapping = {
-            _normalize_move_path(old_path): new_path
+            _normalize_move_path(old_path): str(new_path)
             for old_path, new_path in old_to_new_paths.items()
         }
         new_path = normalized_mapping.get(_normalize_move_path(playing_path))
         if not new_path:
+            # No hay ninguna canción afectada. No enviamos órdenes de playback.
             return state
 
         state["playback_affected"] = True
-        state["new_path"] = str(new_path)
+        state["new_path"] = new_path
 
-        # No tocar la playlist original si ya se llama "auxiliar": en ese caso
-        # se necesita una lista temporal distinta para conservar su contenido.
+        # Detener solo si el archivo que se mueve es el que está reproduciéndose.
+        foobar_api.stop()
+        state["player_stopped"] = True
+        time.sleep(0.5)
+
+        # No limpiar nunca la playlist original, incluso si su título es
+        # "auxiliar". En ese caso se usa una lista temporal con otro nombre.
         auxiliary = next(
             (
                 playlist for playlist in playlists
@@ -200,7 +240,7 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
         )
         if (
             auxiliary is not None
-            and str(auxiliary.get("id")) == str(state["active_playlist_id"])
+            and str(auxiliary.get("id")) == str(active_playlist_id)
         ):
             state["auxiliary_playlist_title"] = "auxiliar (NumHand playback)"
             auxiliary = next(
@@ -208,13 +248,10 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
                     playlist for playlist in playlists
                     if str(playlist.get("title", "")).strip().casefold()
                     == state["auxiliary_playlist_title"].casefold()
+                    and str(playlist.get("id")) != str(active_playlist_id)
                 ),
                 None,
             )
-
-        # Detener antes de que el sistema de archivos intente mover el archivo abierto.
-        foobar_api.stop()
-        state["player_stopped"] = True
 
         if auxiliary is None:
             created = foobar_api.add_playlist(
@@ -229,6 +266,7 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
                         playlist for playlist in refreshed
                         if str(playlist.get("title", "")).strip().casefold()
                         == state["auxiliary_playlist_title"].casefold()
+                        and str(playlist.get("id")) != str(active_playlist_id)
                     ),
                     None,
                 )
@@ -244,7 +282,8 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
         foobar_api.clear_playlist(auxiliary_id)
 
     except Exception as error:
-        # El movimiento de archivos no debe quedar bloqueado si Beefweb falla.
+        # No bloqueamos el movimiento por una excepción de Beefweb. Si el
+        # playback ya fue detenido, el estado parcial permite intentar restaurarlo.
         state["capture_error"] = str(error)
         print(f"No se pudo preparar la restauración de playback de foobar2000: {error}")
 
@@ -253,9 +292,8 @@ def capture_foobar_file_move_state(foobar_api, old_to_new_paths):
 
 def restore_foobar_after_file_move(state, source_folder, successful=True):
     """
-    Reanuda el tema afectado desde la playlist auxiliar y sincroniza la playlist
-    que estaba activa con los archivos de audio que siguen en la carpeta origen.
-    Es reutilizable en futuras operaciones de movimiento.
+    Restaura playback si se movió la canción activa y sincroniza la playlist
+    original únicamente cuando esta corresponde a la carpeta de NumHand.
     """
     if not state or not state.get("fb_api"):
         return
@@ -263,40 +301,51 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
     fb_api = state["fb_api"]
     active_playlist_id = state.get("active_playlist_id")
     auxiliary_playlist_id = state.get("auxiliary_playlist_id")
-    volume_restore_pending = False
+    playback_affected = bool(state.get("playback_affected"))
+    should_sync_source_playlist = bool(state.get("should_sync_source_playlist"))
 
-    if state.get("playback_affected"):
+    # Si la playlist abierta en foobar2000 pertenece a otra carpeta y no se
+    # movió la canción activa, no enviamos ningún POST a foobar2000.
+    if not playback_affected and not should_sync_source_playlist:
+        return
+
+    if playback_affected:
         original_path = state.get("playing_path")
         target_path = state.get("new_path") if successful else original_path
         if not target_path or not Path(target_path).is_file():
-            target_path = original_path if original_path and Path(original_path).is_file() else None
+            target_path = (
+                original_path
+                if original_path and Path(original_path).is_file()
+                else None
+            )
 
+        volume_restore_pending = False
         try:
-            # Si la preparación inicial falló después de detener el player,
-            # recuperar o crear una playlist auxiliar de forma segura aquí.
-            playlists = fb_api.playlists()
-            if auxiliary_playlist_id is None:
-                aux_title = state.get("auxiliary_playlist_title", "auxiliar")
-                auxiliary = next(
-                    (
-                        playlist for playlist in playlists
-                        if str(playlist.get("title", "")).strip().casefold()
-                        == str(aux_title).casefold()
-                        and str(playlist.get("id")) != str(active_playlist_id)
-                    ),
-                    None,
-                )
-                if auxiliary is None:
-                    created = fb_api.add_playlist(aux_title, set_current=True)
-                    auxiliary_playlist_id = created.get("id")
-                else:
-                    auxiliary_playlist_id = auxiliary.get("id")
-                state["auxiliary_playlist_id"] = auxiliary_playlist_id
-
-            if auxiliary_playlist_id is None:
-                raise RuntimeError("No se pudo localizar la playlist auxiliar para restaurar playback.")
-
             if target_path:
+                playlists = fb_api.playlists()
+                if auxiliary_playlist_id is None:
+                    aux_title = state.get("auxiliary_playlist_title", "auxiliar")
+                    auxiliary = next(
+                        (
+                            playlist for playlist in playlists
+                            if str(playlist.get("title", "")).strip().casefold()
+                            == str(aux_title).casefold()
+                            and str(playlist.get("id")) != str(active_playlist_id)
+                        ),
+                        None,
+                    )
+                    if auxiliary is None:
+                        created = fb_api.add_playlist(aux_title, set_current=True)
+                        auxiliary_playlist_id = created.get("id")
+                    else:
+                        auxiliary_playlist_id = auxiliary.get("id")
+                    state["auxiliary_playlist_id"] = auxiliary_playlist_id
+
+                if auxiliary_playlist_id is None:
+                    raise RuntimeError(
+                        "No se pudo localizar la playlist auxiliar para restaurar playback."
+                    )
+
                 fb_api.select_playlist(auxiliary_playlist_id)
                 fb_api.clear_playlist(auxiliary_playlist_id)
                 fb_api.add_playlist_items(auxiliary_playlist_id, [str(target_path)])
@@ -323,7 +372,10 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
                 if state.get("saved_playback_state") == "playing":
                     fb_api.play()
             else:
-                print("No se encontró la ruta del tema para restaurar playback de foobar2000.")
+                print(
+                    "No se encontró una ruta válida para restaurar la canción "
+                    "de foobar2000 después del movimiento."
+                )
 
         except Exception as error:
             print(f"Error al restaurar playback de foobar2000 tras mover archivos: {error}")
@@ -337,8 +389,8 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
                 except Exception as volume_error:
                     print(f"No se pudo restaurar el volumen de foobar2000: {volume_error}")
 
-    # Volver a la playlist seleccionada originalmente y reconstruirla solo con
-    # los archivos de audio que permanezcan en la carpeta abierta en NumHand.
+    # Volver a seleccionar la playlist anterior. Si no pertenece a la carpeta
+    # abierta en NumHand, se preserva su contenido y no se reconstruye.
     if active_playlist_id is None:
         return
 
@@ -350,6 +402,9 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
         )
         if current_playlist is None or str(current_playlist.get("id")) != str(active_playlist_id):
             fb_api.select_playlist(active_playlist_id)
+
+        if not should_sync_source_playlist:
+            return
 
         source_path = Path(source_folder)
         audio_extensions = {extension.casefold() for extension in EXTENSION_FILES}
@@ -374,5 +429,4 @@ def restore_foobar_after_file_move(state, source_folder, successful=True):
         finally:
             fb_api.timeout = old_timeout
     except Exception as error:
-        print(f"No se pudo sincronizar la playlist activa de foobar2000: {error}")
-
+        print(f"No se pudo sincronizar la playlist de foobar2000: {error}")
