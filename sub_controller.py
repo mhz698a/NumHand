@@ -327,6 +327,29 @@ class SubFolderController(QObject):
             except Exception as e:
                 QMessageBox.critical(self.main_window, "Error", f"No se pudo eliminar:\n{e}")
 
+    def _snapshot_file_entries_for_folder(self, target_dir: Path):
+        """Obtiene una instantánea completa de los archivos directos antes de mutar la carpeta."""
+        target_dir = Path(target_dir).resolve()
+        current_folder = getattr(self.main_window, "folder", None)
+        model = getattr(self.main_window, "model", None)
+
+        # Solo reutilizar el modelo cuando corresponde exactamente a la carpeta origen.
+        if current_folder and model is not None:
+            try:
+                if Path(current_folder).resolve() == target_dir:
+                    return list(model.files)
+            except (OSError, TypeError, ValueError):
+                pass
+
+        # Si la carpeta no está cargada en el panel, consultar el índice de archivos
+        # de esa carpeta; no se debe tomar model.files de una carpeta distinta.
+        file_utils = getattr(self.main_window, "file_utils", None)
+        folder_cache = getattr(file_utils, "folder_cache", None)
+        if folder_cache is not None:
+            return list(folder_cache.list_files(target_dir))
+
+        return [path for path in target_dir.iterdir() if path.is_file()]
+
     def _is_folder_currently_open(self, target_dir: Path) -> bool:
         """Verifica si la carpeta o alguna superior está abierta en NumHand."""
         if hasattr(self.main_window, "folder") and self.main_window.folder:
@@ -369,6 +392,16 @@ class SubFolderController(QObject):
         # 1. Verificar si la carpeta está abierta actualmente en la interfaz
         is_current_folder_open = self._is_folder_currently_open(target_dir)
 
+        # Guardar la lista antes del cambio de ruta y antes de cualquier recarga asíncrona.
+        try:
+            file_entries = self._snapshot_file_entries_for_folder(target_dir)
+        except Exception as e:
+            QMessageBox.critical(
+                self.main_window, "Error",
+                f"No se pudo obtener la lista de archivos de origen:\\n{e}"
+            )
+            return
+
         # 2. Capturar estado de reproducción de Foobar2000 antes de mover/renombrar
         fb_api = None
         try:
@@ -388,9 +421,11 @@ class SubFolderController(QObject):
             # Renombrar carpeta física
             target_dir.rename(new_dir)
 
-            # 4. Sincronizar Foobar2000 usando el helper centralizado sin I/O
-            file_entries = self.main_window.model.files if is_current_folder_open else None
-            restore_and_sync_foobar_playlist(foobar_state, new_dir, file_entries=file_entries)
+            # 4. Sincronizar Foobar2000 con la instantánea de archivos del directorio origen
+            restore_and_sync_foobar_playlist(
+                foobar_state, new_dir,
+                file_entries=file_entries, source_dir=target_dir
+            )
 
             # 5. Si la carpeta estaba abierta en la app, actualizar ruta y recargar vista
             if is_current_folder_open:
@@ -443,6 +478,16 @@ class SubFolderController(QObject):
         dest_base_path = self.build_music_ahead_path(dest_year)
         new_dir = dest_base_path / src_dir.name
         
+        # Capturar los archivos de origen antes de mover y antes de iniciar una recarga asíncrona.
+        try:
+            file_entries = self._snapshot_file_entries_for_folder(src_dir)
+        except Exception as e:
+            QMessageBox.critical(
+                self.main_window, "Error",
+                f"No se pudo obtener la lista de archivos de origen:\\n{e}"
+            )
+            return
+
         # Capturar el estado de reproducción usando la nueva ruta correcta
         foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
 
@@ -483,8 +528,10 @@ class SubFolderController(QObject):
             subfolders = self.fetch_subfolders_for_year(dest_year)
             self._populate_subfolders_ui(subfolders, select_subfolder=real_dest_dir.name)
             
-            file_entries = self.main_window.model.files if is_current_folder_open else None
-            restore_and_sync_foobar_playlist(foobar_state, str(real_dest_dir), file_entries=file_entries)
+            restore_and_sync_foobar_playlist(
+                foobar_state, str(real_dest_dir),
+                file_entries=file_entries, source_dir=src_dir
+            )
             
         def on_error(err_msg):
             self.progress_dialog.close()
