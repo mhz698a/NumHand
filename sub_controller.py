@@ -398,7 +398,7 @@ class SubFolderController(QObject):
         except Exception as e:
             QMessageBox.critical(
                 self.main_window, "Error",
-                f"No se pudo obtener la lista de archivos de origen:\\n{e}"
+                f"No se pudo obtener la lista de archivos de origen:\n{e}"
             )
             return
 
@@ -409,13 +409,13 @@ class SubFolderController(QObject):
         except Exception:
             pass
 
-        # Calculamos de una vez la ruta nueva para el archivo en reproducción si aplica
-        temp_new_dir_for_calc = target_dir.parent / final_name
-        foobar_state = capture_foobar_playback_state(fb_api, target_dir, temp_new_dir_for_calc)
-
-        # 3. Comprobar archivos en uso con syswall
+        # 3. Comprobar archivos en uso antes de detener la reproducción.
         if not self._check_files_in_use(target_dir):
             return
+
+        # Capturar el estado y calcular la nueva ruta de reproducción.
+        temp_new_dir_for_calc = target_dir.parent / final_name
+        foobar_state = capture_foobar_playback_state(fb_api, target_dir, temp_new_dir_for_calc)
 
         try:
             # Renombrar carpeta física
@@ -484,15 +484,16 @@ class SubFolderController(QObject):
         except Exception as e:
             QMessageBox.critical(
                 self.main_window, "Error",
-                f"No se pudo obtener la lista de archivos de origen:\\n{e}"
+                f"No se pudo obtener la lista de archivos de origen:\n{e}"
             )
             return
 
-        # Capturar el estado de reproducción usando la nueva ruta correcta
-        foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
-
+        # Comprobar bloqueos antes de detener la reproducción.
         if not self._check_files_in_use(src_dir):
             return
+
+        # Capturar el estado de reproducción usando la nueva ruta correcta.
+        foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
 
         self.progress_dialog = DualProgressDialog("Mover carpeta a otro año", self.main_window)
         self.progress_dialog.show()
