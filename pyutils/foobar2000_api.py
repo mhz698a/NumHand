@@ -131,6 +131,19 @@ class Foobar2000Api:
             return playlist_items["items"]
         return payload.get("items", [])
 
+    def first_playlist_item_path(self, playlist_id: str | int) -> str | None:
+        """Devuelve la ruta del primer elemento de una playlist sin modificarla."""
+        items = self.playlist_items(
+            playlist_id,
+            start=0,
+            end=1,
+            columns=["%path%"],
+        )
+        if not items:
+            return None
+        columns = items[0].get("columns") or []
+        return columns[0] if columns and columns[0] else None
+
     def current_path(self) -> str | None:
         player = self.player().get("player", {})
         if player.get("playbackState") not in ("playing", "paused", "pause"):
