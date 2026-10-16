@@ -17,6 +17,12 @@ class DualProgressDialog(QDialog):
         self.setWindowTitle(title)
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setMinimumWidth(400)
+        
+        self.setWindowFlags(
+            Qt.WindowType.Window | 
+            Qt.WindowType.CustomizeWindowHint | 
+            Qt.WindowType.WindowTitleHint
+        )
 
         layout = QVBoxLayout(self)
 
