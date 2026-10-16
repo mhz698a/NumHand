@@ -782,7 +782,7 @@ def move_selected_to_trash(parent, model):
         )
         return
 
-    locking_apps = syswall.get_locking_processes(selected_paths)
+    locking_apps = syswall.get_locking_processes(selected_paths, omit_fb=True)
     if locking_apps:
         apps_str = "\n• ".join(locking_apps)
         QMessageBox.warning(
@@ -792,6 +792,19 @@ def move_selected_to_trash(parent, model):
             f"\n\n• {apps_str}\n\nCierra las aplicaciones manualmente antes de proceder.",
         )
         return
+
+    selected_resolved = {Path(path).resolve() for path in selected_paths}
+    old_to_new_paths = {
+        str(Path(source).resolve()): str((trash_folder / final_name).resolve())
+        for source, final_name in trash_plan
+        if Path(source).resolve() in selected_resolved
+    }
+
+    foobar_state = capture_foobar_file_move_state(
+        Foobar2000Api(),
+        old_to_new_paths,
+        source_folder=source_folder,
+    )
 
     progress_dialog = DualProgressDialog("Mover archivos a papelera", parent)
     progress_dialog.show()
@@ -807,10 +820,19 @@ def move_selected_to_trash(parent, model):
 
     def on_finished():
         progress_dialog.close()
+        restore_foobar_after_file_move(
+            foobar_state,
+            source_folder,
+            successful=True,
+        )
         parent.file_utils.sync_folder_cache(source_folder)
         parent.file_utils.sync_folder_cache(trash_folder)
         model.set_all_checked(False)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
         QMessageBox.information(
             parent,
             "Éxito",
@@ -824,8 +846,17 @@ def move_selected_to_trash(parent, model):
 
     def on_error(message):
         progress_dialog.close()
+        restore_foobar_after_file_move(
+            foobar_state,
+            source_folder,
+            successful=False,
+        )
         QMessageBox.critical(parent, "Error", message)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
 
     task.signals.progress.connect(progress_dialog.update_progress)
     task.signals.finished.connect(on_finished)
