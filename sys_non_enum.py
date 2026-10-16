@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 from sysprog import DualProgressDialog
 from wconst import TEMP_PREFIX
+from wutils_sysfiles import is_folder_cleanly_enumerated
 
 
 class ApplyNonEnumSignals(QObject):
@@ -117,23 +118,8 @@ class ApplyNonEnumTask(QRunnable):
 
 
 def _is_cleanly_enumerated(paths):
-    files = [Path(path) for path in paths if Path(path).is_file()]
-    if not files:
-        return False
-
-    matches = []
-    for path in files:
-        match = re.match(r"^(\d{2}|\d{3})\.\s", path.name)
-        if not match:
-            return False
-        matches.append((int(match.group(1)), len(match.group(1))))
-
-    widths = {width for _, width in matches}
-    if len(widths) != 1:
-        return False
-
-    numbers = sorted(number for number, _ in matches)
-    return numbers == list(range(1, len(numbers) + 1))
+    """Conserva el punto de entrada y comparte la validación con File / Apply changes."""
+    return is_folder_cleanly_enumerated(paths)
 
 
 def apply_changes_non_enum(parent, model):
