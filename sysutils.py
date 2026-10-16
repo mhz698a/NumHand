@@ -4,7 +4,7 @@ import re
 
 import shutil
 from pathlib import Path
-from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot, QThread
 
 from wutils_sysfiles import rename_with_retry, clean_prefix
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -17,12 +17,21 @@ class WorkerSignals(QObject):
     error = pyqtSignal(str)                              # error message
 
 
+import logging
+from pathlib import Path
+from PyQt6.QtCore import QRunnable, pyqtSlot, QThread # <- Importamos QThread
+
 class LoadFolderTask(QRunnable):
     def __init__(self, folder_path, file_utils):
         super().__init__()
         self.folder_path = Path(folder_path)
         self.file_utils = file_utils
         self.signals = WorkerSignals()
+        self._is_killed = False # <- Bandera para controlar la cancelación
+
+    def stop(self):
+        """Método para detener la tarea desde el hilo principal."""
+        self._is_killed = True
 
     @pyqtSlot()
     def run(self):
@@ -31,7 +40,7 @@ class LoadFolderTask(QRunnable):
             logger = logging.getLogger(__name__)
             logger.info("Iniciando carga de carpeta: %r", self.folder_path)
 
-            # Check backup if exists
+            # Verificar si existe respaldo
             backup_path = self.folder_path / BACKUP_FILENAME
             if backup_path.exists():
                 self.signals.progress.emit(0, 0, "Recuperando respaldo pendiente...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
@@ -40,15 +49,20 @@ class LoadFolderTask(QRunnable):
                     self.signals.error.emit("No se pudo completar la recuperación del respaldo pendiente.")
                     return
 
+            if self._is_killed: return # Check antes de leer archivos
+
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
             files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
             total = len(files)
             logger.info("Carpeta %r: %d archivos detectados", self.folder_path, total)
 
-            # Metadata is loaded on demand by FileEntry.metadata, not here.
-            # Filename text is sanitized before crossing the Qt string boundary.
             from model import FileEntry, safe_display_text
             for index, path in enumerate(files, start=1):
+                # Verificación cooperativa: si se solicitó detener, salimos del ciclo de inmediato
+                if self._is_killed:
+                    logger.info("Carga de carpeta cancelada por el usuario.")
+                    return
+
                 current_path = path
                 entry = FileEntry(path)
                 logger.debug("Preparando FileEntry para %r", path)
@@ -58,6 +72,9 @@ class LoadFolderTask(QRunnable):
                     f"Cargando archivo {index}/{total}: {safe_display_text(path.name)}",
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
+                
+                # REEMPLAZO: Dormimos 50 milisegundos de forma nativa en Qt
+                QThread.msleep(50)
 
             logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)
             self.signals.finished.emit(total)
