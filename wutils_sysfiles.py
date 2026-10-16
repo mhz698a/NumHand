@@ -51,6 +51,30 @@ def is_folder_cleanly_numbered(files):
     return True
 
 
+def is_folder_cleanly_enumerated(paths):
+    """Comprueba la enumeración continua independientemente del orden visual de los archivos."""
+    files = []
+    for item in paths:
+        path = Path(item.path if hasattr(item, "path") else item)
+        if path.is_file():
+            files.append(path)
+
+    if not files:
+        return False
+
+    total = len(files)
+    expected_width = 2 if total < 100 else 3 if total < 1000 else 4
+    numbers = []
+
+    for path in files:
+        match = re.match(r"^(\\d+)\\.\\s", path.name)
+        if not match or len(match.group(1)) != expected_width:
+            return False
+        numbers.append(int(match.group(1)))
+
+    return sorted(numbers) == list(range(1, total + 1))
+
+
 def classify_selected_files(selected_paths):
     std_matches = []
     has_any_prefix = False
