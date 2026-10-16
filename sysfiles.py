@@ -11,7 +11,7 @@ from PyQt6.QtCore import QThreadPool, Qt, QCoreApplication
 import syswall
 
 from sysprog import DualProgressDialog
-from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, classify_selected_files, rename_with_retry
+from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, is_folder_cleanly_enumerated, classify_selected_files, rename_with_retry
 from sysutils import LoadFolderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from sys_engine_dest import ApplyOrderTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -113,6 +113,18 @@ class FileUtils:
             return
 
         file_paths = [f.path for f in model.files]
+        if not is_folder_cleanly_enumerated(file_paths):
+            confirmation = QMessageBox.question(
+                parent,
+                "Carpeta sin enumeración correcta",
+                "La carpeta no está enumerada correctamente o la secuencia tiene saltos.\n\n"
+                "¿Deseas enumerar la carpeta al aplicar los cambios?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirmation != QMessageBox.StandardButton.Yes:
+                return
+
         if self.check_files_locked(parent, file_paths):
             return
 
