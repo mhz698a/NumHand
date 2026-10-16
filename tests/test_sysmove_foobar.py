@@ -1,8 +1,15 @@
+import os
+import sys
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 import tempfile
 import shutil
+
+# Ensure repository root is in sys.path when running from tests/ directory
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
 from pyutils.foobar_helpers import (
     capture_foobar_file_move_state,
