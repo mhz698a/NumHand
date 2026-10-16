@@ -64,6 +64,18 @@ class TagGoogleTests(unittest.TestCase):
             self.assertIsNone(open_song_search(filename=""))
             open_browser.assert_not_called()
 
+    def test_qualifier_without_song_metadata_is_not_searched(self):
+        with patch("tag_google.webbrowser.open") as open_browser:
+            self.assertIsNone(
+                open_song_search(
+                    title="",
+                    artist="",
+                    search_by="title_artist",
+                    qualifier="lyrics",
+                )
+            )
+            open_browser.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
