@@ -63,7 +63,7 @@ def is_folder_cleanly_enumerated(paths):
         return False
 
     total = len(files)
-    expected_width = 2 if total < 100 else 3 if total < 1000 else 4
+    expected_width = 2 if total < 100 else 3 if total < 1000 else max(4, len(str(total)))
     numbers = []
 
     for path in files:
