@@ -5,6 +5,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -57,11 +58,6 @@ class YearSubDialog(QDialog):
             self._update_move_button
         )
 
-        selection_layout = QHBoxLayout()
-        selection_layout.setSpacing(8)
-        selection_layout.addWidget(self.YearSelectorCells)
-        selection_layout.addWidget(self.SubFolderYearList, stretch=1)
-
         self.FileList = QListWidget(self)
         self.FileList.setObjectName("FilesToMoveList")
         self.FileList.setSelectionMode(
@@ -84,13 +80,24 @@ class YearSubDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         buttons_layout.addWidget(self.move_button)
         buttons_layout.addWidget(self.cancel_button)
+        
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.SubFolderYearList, stretch=1)
+        right_layout.addWidget(QLabel("Archivos a mover:", self))
+        right_layout.addWidget(self.FileList, stretch=1)
+        
+        main_content_layout = QHBoxLayout()
+        main_content_layout.setSpacing(8)
+        main_content_layout.setContentsMargins(0, 0, 0, 0)
+        main_content_layout.addWidget(self.YearSelectorCells)
+        main_content_layout.addLayout(right_layout, stretch=1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
-        layout.addLayout(selection_layout)
-        layout.addWidget(QLabel("Archivos a mover:", self))
-        layout.addWidget(self.FileList, stretch=1)
+        layout.addLayout(main_content_layout, stretch=1)
         layout.addLayout(buttons_layout)
 
         self.resize(680, 620)
@@ -106,9 +113,9 @@ class YearSubDialog(QDialog):
         table = QTableWidget(rows, 2, self)
         table.setObjectName("YearSelectorCells")
         table.setFixedWidth(98)
-        table.setFixedHeight(rows * 26 + 2)
         table.horizontalHeader().setVisible(False)
         table.verticalHeader().setVisible(False)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setSelectionBehavior(
@@ -133,7 +140,6 @@ class YearSubDialog(QDialog):
             item = QTableWidgetItem(year)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, column, item)
-            table.setRowHeight(row, 26)
 
         table.setColumnWidth(0, 45)
         table.setColumnWidth(1, 45)
