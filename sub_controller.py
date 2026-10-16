@@ -13,6 +13,7 @@ from pyutils.foobar2000_api import Foobar2000Api
 from syswall import get_locking_processes
 from wutils_foobar2000 import select_foobar2000_playing_file
 from pyutils.foobar_helpers import capture_foobar_playback_state, restore_and_sync_foobar_playlist
+from pyutils.foobar_settings import get_foobar_interventions_enabled
 
 BASE_ROOT = r"E:\_Internal"
 
@@ -263,6 +264,8 @@ class SubFolderController(QObject):
 
     def _check_and_stop_playback_if_needed(self, target_dir: Path) -> bool:
         """Comprueba si el archivo en reproducción pertenece a la carpeta y detiene el playback."""
+        if not get_foobar_interventions_enabled():
+            return False
         try:
             current_playing = self.foobar.current_path_playbackState()
             if current_playing:
@@ -295,9 +298,23 @@ class SubFolderController(QObject):
                             if len(files_to_check) > 50: # Limitar para rendimiento
                                 break
             
-            locking_apps = get_locking_processes(files_to_check, omit_fb=True)
+            foobar_enabled = get_foobar_interventions_enabled()
+            locking_apps = get_locking_processes(
+                files_to_check,
+                omit_fb=foobar_enabled,
+            )
             if locking_apps:
                 apps_str = ", ".join(locking_apps)
+                if not foobar_enabled:
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Archivos en uso",
+                        "No se puede modificar la carpeta mientras haya archivos "
+                        "bloqueados. Cierra foobar2000 o espera a que libere los "
+                        f"archivos.\n\nProcesos: {apps_str}",
+                    )
+                    return False
+
                 res = QMessageBox.warning(
                     self.main_window,
                     "Archivos en uso",
@@ -478,12 +495,14 @@ class SubFolderController(QObject):
             )
             return
 
-        # 2. Capturar estado de reproducción de Foobar2000 antes de mover/renombrar
+        # Coordinar con Foobar2000 solo cuando las intervenciones están habilitadas.
+        foobar_enabled = get_foobar_interventions_enabled()
         fb_api = None
-        try:
-            fb_api = Foobar2000Api()
-        except Exception:
-            pass
+        if foobar_enabled:
+            try:
+                fb_api = Foobar2000Api()
+            except Exception:
+                pass
 
         # 3. Comprobar archivos en uso antes de detener la reproducción.
         if not self._check_files_in_use(target_dir):
@@ -491,17 +510,22 @@ class SubFolderController(QObject):
 
         # Capturar el estado y calcular la nueva ruta de reproducción.
         temp_new_dir_for_calc = target_dir.parent / final_name
-        foobar_state = capture_foobar_playback_state(fb_api, target_dir, temp_new_dir_for_calc)
+        foobar_state = None
+        if foobar_enabled:
+            foobar_state = capture_foobar_playback_state(
+                fb_api, target_dir, temp_new_dir_for_calc
+            )
 
         try:
             # Renombrar carpeta física
             target_dir.rename(new_dir)
 
             # 4. Sincronizar Foobar2000 con la instantánea de archivos del directorio origen
-            restore_and_sync_foobar_playlist(
-                foobar_state, new_dir,
-                file_entries=file_entries, source_dir=target_dir
-            )
+            if foobar_enabled:
+                restore_and_sync_foobar_playlist(
+                    foobar_state, new_dir,
+                    file_entries=file_entries, source_dir=target_dir
+                )
 
             # 5. Si la carpeta estaba abierta en la app, actualizar ruta y recargar vista
             if is_current_folder_open:
@@ -509,7 +533,12 @@ class SubFolderController(QObject):
                 if hasattr(self.main_window, "file_list"):
                     self.main_window.file_list.clearSelection()
                 
-                if foobar_state["have_been_playing"] and foobar_state["new_path_for_playing"]:
+                if (
+                    foobar_enabled
+                    and foobar_state
+                    and foobar_state["have_been_playing"]
+                    and foobar_state["new_path_for_playing"]
+                ):
                     self.main_window.file_utils.load_folder(
                         self.main_window, 
                         self.main_window.model, 
@@ -544,11 +573,14 @@ class SubFolderController(QObject):
 
         is_current_folder_open = self._is_folder_currently_open(src_dir)
 
+        # Coordinar con Foobar2000 solo cuando las intervenciones están habilitadas.
+        foobar_enabled = get_foobar_interventions_enabled()
         fb_api = None
-        try:
-            fb_api = Foobar2000Api()
-        except Exception:
-            pass
+        if foobar_enabled:
+            try:
+                fb_api = Foobar2000Api()
+            except Exception:
+                pass
 
         # FolderMoveTask cambia el prefijo al del año destino; calcular exactamente esa ruta
         # para que la ruta de reproducción guardada coincida con real_dest_dir.
@@ -572,7 +604,9 @@ class SubFolderController(QObject):
             return
 
         # Capturar el estado de reproducción usando la nueva ruta correcta.
-        foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
+        foobar_state = None
+        if foobar_enabled:
+            foobar_state = capture_foobar_playback_state(fb_api, src_dir, new_dir)
 
         self.progress_dialog = DualProgressDialog("Mover carpeta a otro año", self.main_window)
         self.progress_dialog.show()
@@ -594,7 +628,12 @@ class SubFolderController(QObject):
                 self.main_window.folder = real_dest_dir
                 self.main_window.file_list.clearSelection()
                 
-                if foobar_state.get("have_been_playing") and foobar_state.get("new_path_for_playing"):
+                if (
+                    foobar_enabled
+                    and foobar_state
+                    and foobar_state.get("have_been_playing")
+                    and foobar_state.get("new_path_for_playing")
+                ):
                     self.main_window.file_utils.load_folder(
                         self.main_window, 
                         self.main_window.model, 
@@ -608,10 +647,11 @@ class SubFolderController(QObject):
             subfolders = self.fetch_subfolders_for_year(dest_year)
             self._populate_subfolders_ui(subfolders, select_subfolder=real_dest_dir.name)
             
-            restore_and_sync_foobar_playlist(
-                foobar_state, str(real_dest_dir),
-                file_entries=file_entries, source_dir=src_dir
-            )
+            if foobar_enabled:
+                restore_and_sync_foobar_playlist(
+                    foobar_state, str(real_dest_dir),
+                    file_entries=file_entries, source_dir=src_dir
+                )
             
         def on_error(err_msg):
             self.progress_dialog.close()
