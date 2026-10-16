@@ -23,6 +23,8 @@ from pyutils.foobar_helpers import (
     capture_foobar_file_move_state,
     restore_foobar_after_file_move,
 )
+from pyutils.yearsub_dlg import YearSubDialog
+from pyutils.foobar_settings import get_foobar_interventions_enabled
 
 
 NUMBERING_RE = re.compile(r"^\d{2,3}\.\s")
@@ -514,6 +516,8 @@ def move_selected_files(parent, model):
     if not selected_files:
         return
 
+    foobar_enabled = get_foobar_interventions_enabled()
+
     source_folder = getattr(parent, "folder", None)
     if not source_folder or not Path(source_folder).exists():
         QMessageBox.warning(
@@ -589,7 +593,7 @@ def move_selected_files(parent, model):
     )
 
     locking_paths = selected_paths + (existing_paths if reorganize_destination else [])
-    locking_apps = syswall.get_locking_processes(locking_paths, omit_fb=True)
+    locking_apps = syswall.get_locking_processes(locking_paths, omit_fb=foobar_enabled)
     if locking_apps:
         apps_str = "\n• ".join(locking_apps)
         QMessageBox.warning(
@@ -615,11 +619,13 @@ def move_selected_files(parent, model):
         if Path(source).resolve() in selected_resolved
     }
 
-    foobar_state = capture_foobar_file_move_state(
-        Foobar2000Api(),
-        old_to_new_paths,
-        source_folder=source_folder,
-    )
+    foobar_state = None
+    if foobar_enabled:
+        foobar_state = capture_foobar_file_move_state(
+            Foobar2000Api(),
+            old_to_new_paths,
+            source_folder=source_folder,
+        )
 
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
     progress_dialog.show()
@@ -635,11 +641,12 @@ def move_selected_files(parent, model):
 
     def on_finished():
         progress_dialog.close()
-        restore_foobar_after_file_move(
-            foobar_state,
-            source_folder,
-            successful=True,
-        )
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=True,
+            )
         parent.file_utils.sync_folder_cache(source_folder)
         parent.file_utils.sync_folder_cache(target_folder)
         model.set_all_checked(False)
@@ -664,11 +671,196 @@ def move_selected_files(parent, model):
         progress_dialog.close()
         # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
         # canción desde su ruta original si la operación no terminó correctamente.
-        restore_foobar_after_file_move(
-            foobar_state,
-            source_folder,
-            successful=False,
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=False,
+            )
+        QMessageBox.critical(parent, "Error", message)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
         )
+
+    task.signals.progress.connect(progress_dialog.update_progress)
+    task.signals.finished.connect(on_finished)
+    task.signals.error.connect(on_error)
+
+    QThreadPool.globalInstance().start(task)
+
+
+def move_selected_files_to_year_subfolder(parent, model):
+    selected_files = model.checked_files()
+    if not selected_files:
+        return
+
+    foobar_enabled = get_foobar_interventions_enabled()
+
+    source_folder = getattr(parent, "folder", None)
+    if not source_folder or not Path(source_folder).exists():
+        QMessageBox.warning(
+            parent,
+            "Atención",
+            "No hay ninguna carpeta cargada.",
+        )
+        return
+
+    source_folder = Path(source_folder).resolve()
+
+    sub_controller = getattr(parent, "sub_controller", None)
+    music_path_for_year = getattr(
+        sub_controller, "build_music_ahead_path", None
+    )
+    target_folder = YearSubDialog.get_destination_path(
+        parent,
+        selected_files,
+        music_path_for_year=music_path_for_year,
+    )
+    if target_folder is None:
+        return
+
+    target_folder = Path(target_folder).resolve()
+
+    if target_folder == source_folder:
+        QMessageBox.warning(
+            parent,
+            "Carpeta no válida",
+            "La carpeta de destino debe ser diferente de la carpeta cargada.",
+        )
+        return
+
+    selected_paths = [file.path for file in selected_files]
+    source_paths = [
+        path for path in source_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    source_numbering = detect_folder_numbering(source_paths)
+    reorganize_source = source_numbering in ("00. ", "000. ")
+
+    existing_paths = [
+        path
+        for path in target_folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+
+    answer = QMessageBox.question(
+        parent,
+        "Quitar numeración",
+        "¿Deseas quitar de los archivos seleccionados las numeraciones iniciales "
+        "\"00. \" o \"000. \" antes de moverlos?",
+        QMessageBox.StandardButton.Yes
+        | QMessageBox.StandardButton.No
+        | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Yes,
+    )
+
+    if answer == QMessageBox.StandardButton.Cancel:
+        return
+
+    remove_selected_numbering = answer == QMessageBox.StandardButton.Yes
+
+    reorganize_answer = QMessageBox.question(
+        parent,
+        "Reorganizar carpeta de destino",
+        "¿Deseas reorganizar y renumerar también los archivos de la carpeta de destino?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    reorganize_destination = (
+        reorganize_answer == QMessageBox.StandardButton.Yes
+    )
+
+    locking_paths = selected_paths + (existing_paths if reorganize_destination else [])
+    locking_apps = syswall.get_locking_processes(locking_paths, omit_fb=foobar_enabled)
+    if locking_apps:
+        apps_str = "\n• ".join(locking_apps)
+        QMessageBox.warning(
+            parent,
+            "Archivos en uso",
+            "Los siguientes programas están bloqueando archivos que se intentan modificar:"
+            f"\n\n• {apps_str}"
+            "\n\nCierra las aplicaciones manualmente antes de proceder.",
+        )
+        return
+
+    # Calcular la ruta final real de cada seleccionado, incluyendo los cambios de
+    # numeración del destino, antes de detener el archivo que pudiera estar reproduciéndose.
+    move_plan = (
+        build_destination_plan(existing_paths, selected_paths, remove_selected_numbering)
+        if reorganize_destination
+        else build_direct_move_plan(selected_paths, remove_selected_numbering)
+    )
+    selected_resolved = {Path(path).resolve() for path in selected_paths}
+    old_to_new_paths = {
+        str(Path(source).resolve()): str((target_folder / final_name).resolve())
+        for source, final_name in move_plan
+        if Path(source).resolve() in selected_resolved
+    }
+
+    foobar_state = None
+    if foobar_enabled:
+        foobar_state = capture_foobar_file_move_state(
+            Foobar2000Api(),
+            old_to_new_paths,
+            source_folder=source_folder,
+        )
+
+    progress_dialog = DualProgressDialog("Mover archivos a subcarpeta por año", parent)
+    progress_dialog.show()
+
+    task = MoveSelectedTask(
+        source_folder,
+        target_folder,
+        selected_paths,
+        remove_selected_numbering,
+        reorganize_destination,
+        reorganize_source,
+    )
+
+    def on_finished():
+        progress_dialog.close()
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=True,
+            )
+        parent.file_utils.sync_folder_cache(source_folder)
+        parent.file_utils.sync_folder_cache(target_folder)
+        model.set_all_checked(False)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
+        if reorganize_destination:
+            message = (
+                "Los archivos seleccionados fueron movidos y la numeración de las "
+                "carpetas de origen y destino fue reorganizada correctamente."
+            )
+        else:
+            message = (
+                "Los archivos seleccionados fueron movidos. La carpeta de origen "
+                "fue reorganizada y la carpeta de destino existente no fue modificada."
+            )
+        QMessageBox.information(parent, "Éxito", message)
+
+    def on_error(message):
+        progress_dialog.close()
+        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
+        # canción desde su ruta original si la operación no terminó correctamente.
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=False,
+            )
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
@@ -687,6 +879,8 @@ def move_selected_to_trash(parent, model):
     selected_files = model.checked_files()
     if not selected_files:
         return
+
+    foobar_enabled = get_foobar_interventions_enabled()
 
     source_folder = getattr(parent, "folder", None)
     if not source_folder or not Path(source_folder).is_dir():
@@ -782,7 +976,7 @@ def move_selected_to_trash(parent, model):
         )
         return
 
-    locking_apps = syswall.get_locking_processes(selected_paths, omit_fb=True)
+    locking_apps = syswall.get_locking_processes(selected_paths, omit_fb=foobar_enabled)
     if locking_apps:
         apps_str = "\n• ".join(locking_apps)
         QMessageBox.warning(
@@ -800,11 +994,13 @@ def move_selected_to_trash(parent, model):
         if Path(source).resolve() in selected_resolved
     }
 
-    foobar_state = capture_foobar_file_move_state(
-        Foobar2000Api(),
-        old_to_new_paths,
-        source_folder=source_folder,
-    )
+    foobar_state = None
+    if foobar_enabled:
+        foobar_state = capture_foobar_file_move_state(
+            Foobar2000Api(),
+            old_to_new_paths,
+            source_folder=source_folder,
+        )
 
     progress_dialog = DualProgressDialog("Mover archivos a papelera", parent)
     progress_dialog.show()
@@ -820,11 +1016,12 @@ def move_selected_to_trash(parent, model):
 
     def on_finished():
         progress_dialog.close()
-        restore_foobar_after_file_move(
-            foobar_state,
-            source_folder,
-            successful=True,
-        )
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=True,
+            )
         parent.file_utils.sync_folder_cache(source_folder)
         parent.file_utils.sync_folder_cache(trash_folder)
         model.set_all_checked(False)
@@ -846,11 +1043,12 @@ def move_selected_to_trash(parent, model):
 
     def on_error(message):
         progress_dialog.close()
-        restore_foobar_after_file_move(
-            foobar_state,
-            source_folder,
-            successful=False,
-        )
+        if foobar_state is not None:
+            restore_foobar_after_file_move(
+                foobar_state,
+                source_folder,
+                successful=False,
+            )
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,

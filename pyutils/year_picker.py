@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QPushButton,
 )
+from datetime import datetime
+
 
 class YearPickerDialog(QDialog):
     def __init__(self, parent=None):
@@ -20,7 +22,6 @@ class YearPickerDialog(QDialog):
         layout.addWidget(QLabel("Año destino:"))
 
         self.table = QTableWidget(self)
-        from datetime import datetime
         years = [str(y) for y in range(2004, datetime.now().year + 1)]
         columns = 4
         rows = (len(years) + columns - 1) // columns
