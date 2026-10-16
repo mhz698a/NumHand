@@ -281,6 +281,7 @@ class SubFolderController(QObject):
     def _check_files_in_use(self, target_dir: Path) -> bool:
         """Verifica si la carpeta o archivos internos están en uso usando syswall."""
         try:
+            foobar_enabled = get_foobar_interventions_enabled()
             files_to_check = [str(target_dir)]
             if target_dir.is_dir():
                 current_folder = getattr(self.main_window, "folder", None)
@@ -300,7 +301,6 @@ class SubFolderController(QObject):
                             if foobar_enabled and len(files_to_check) > 50:
                                 break
             
-            foobar_enabled = get_foobar_interventions_enabled()
             locking_apps = get_locking_processes(
                 files_to_check,
                 omit_fb=foobar_enabled,
