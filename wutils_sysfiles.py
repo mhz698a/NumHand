@@ -67,7 +67,7 @@ def is_folder_cleanly_enumerated(paths):
     numbers = []
 
     for path in files:
-        match = re.match(r"^(\\d+)\\.\\s", path.name)
+        match = re.match(r"^(\d+)\.\s", path.name)
         if not match or len(match.group(1)) != expected_width:
             return False
         numbers.append(int(match.group(1)))
