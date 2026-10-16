@@ -93,15 +93,13 @@ class FolderEnumerationTests(unittest.TestCase):
         file_utils.thread_pool = MagicMock()
         file_utils.check_files_locked = MagicMock(return_value=False)
 
-        with (
-            patch(
-                "sysfiles.QMessageBox.question",
-                return_value=QMessageBox.StandardButton.Yes,
-            ) as question,
-            patch("sysfiles.DualProgressDialog") as progress_dialog,
-            patch("sysfiles.ApplyOrderTask") as task_class,
-        ):
-            file_utils.apply_order(parent, model)
+        with patch(
+            "sysfiles.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ) as question:
+            with patch("sysfiles.DualProgressDialog") as progress_dialog:
+                with patch("sysfiles.ApplyOrderTask") as task_class:
+                    file_utils.apply_order(parent, model)
 
         question.assert_called_once()
         file_utils.check_files_locked.assert_called_once_with(parent, [path])
