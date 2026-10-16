@@ -11,6 +11,7 @@ from wcoverlabel import CoverLabel
 from tag_cover import read_cover_art, get_common_cover
 from tag_utilbox import UtilityLineEdit, UtilityTextEdit
 from model import safe_display_text
+from tag_google import open_song_search
 
 class IndividualTaggerPanel(QWidget):
     def __init__(self, parent=None):
@@ -118,11 +119,15 @@ class IndividualTaggerPanel(QWidget):
         main_layout.addLayout(metadata_layout)
         main_layout.addStretch()
 
+        self.search_song = QPushButton("Search Song")
+        self.search_song.setEnabled(False)
+        self.search_song.clicked.connect(self.show_search_song_menu)
         self.apply_tags = QPushButton("Apply Tags")
 
         footer_layout = QHBoxLayout()
         footer_layout.setSpacing(8)
         footer_layout.addStretch()
+        footer_layout.addWidget(self.search_song)
         footer_layout.addWidget(self.apply_tags)
 
         bind_chk_widget(self.title_check, self.title_edit)
@@ -136,7 +141,66 @@ class IndividualTaggerPanel(QWidget):
         bind_chk_widget(self.comment_check, self.comment_edit)
 
         main_layout.addLayout(footer_layout)
-    
+
+    def show_search_song_menu(self):
+        """Muestra las seis variantes de búsqueda rápida en Google."""
+        if not self.current_entries:
+            return
+
+        menu = QMenu(self)
+        actions = (
+            ("Buscar por nombre de archivo", "filename", None),
+            ("Buscar por nombre de archivo + lyrics", "filename", "lyrics"),
+            ("Buscar por nombre de archivo + release date", "filename", "release date"),
+            ("Buscar por título + artista", "title_artist", None),
+            ("Buscar por título + artista + lyrics", "title_artist", "lyrics"),
+            ("Buscar por título + artista + release date", "title_artist", "release date"),
+        )
+
+        for label, search_by, qualifier in actions:
+            action = menu.addAction(label)
+            action.triggered.connect(
+                lambda checked=False, field=search_by, suffix=qualifier:
+                    self._search_song(field, suffix)
+            )
+
+        menu.exec(self.search_song.mapToGlobal(self.search_song.rect().bottomLeft()))
+
+    def _search_song(self, search_by, qualifier=None):
+        """Abre Google usando el nombre del archivo o sus etiquetas actuales."""
+        if not self.current_entries:
+            return
+
+        entry = self.current_entries[0]
+        metadata = entry.metadata or {}
+
+        if len(self.current_entries) == 1:
+            filename = self.filename_field_rom.text().strip() or entry.path.stem
+            title = self.title_edit.text().strip()
+            artist = self.artist_edit.text().strip()
+        else:
+            # Para selección múltiple, las búsquedas usan el primer archivo.
+            filename = entry.path.stem
+            title = ""
+            artist = ""
+
+        title = title or str(metadata.get("title", "")).strip()
+        artist = artist or str(metadata.get("artist", "")).strip()
+
+        url = open_song_search(
+            filename=filename,
+            title=title,
+            artist=artist,
+            search_by=search_by,
+            qualifier=qualifier,
+        )
+        if url is None:
+            QMessageBox.information(
+                self,
+                "Search Song",
+                "No hay información suficiente para construir esta búsqueda.",
+            )
+
     def set_current_entries(self, entries):
         """Actualiza los archivos seleccionados y evalúa si comparten carátula o difieren."""
         self.current_entries = entries
@@ -162,6 +226,7 @@ class IndividualTaggerPanel(QWidget):
 
         # Activar o desactivar el botón Apply Tags
         self.apply_tags.setEnabled(has_selection)
+        self.search_song.setEnabled(has_selection)
 
         if not entries:
             self.filename_field_rom.clear()
