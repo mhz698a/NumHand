@@ -98,8 +98,29 @@ class Foobar2000Api:
         )
         return payload or {}
 
+    def select_playlist(self, playlist_id: str | int) -> None:
+        """Selecciona la playlist activa mediante POST /api/playlists."""
+        self._post("/api/playlists", json={"current": playlist_id})
 
-    def playlist_items(self, playlist_id: int, start: int = 0, end: int = 20000,
+    def play(self) -> None:
+        """Inicia o reanuda la reproducción actual."""
+        self._post("/api/player/play")
+
+    def pause(self) -> None:
+        """Pausa la reproducción actual."""
+        self._post("/api/player/pause")
+
+    def restore_volume_state(
+        self, volume: float | None, is_muted: bool = False
+    ) -> None:
+        """Restaura el volumen y el estado de mute guardados previamente."""
+        payload: dict[str, Any] = {"isMuted": bool(is_muted)}
+        if volume is not None:
+            payload["volume"] = volume
+        self._post("/api/player", json=payload)
+
+
+    def playlist_items(self, playlist_id: str | int, start: int = 0, end: int = 20000,
                        columns: list[str] | None = None,) -> list[dict[str, Any]]:
         payload = self._get(
             f"/api/playlists/{playlist_id}/items/{start}:{end}",
@@ -109,6 +130,19 @@ class Foobar2000Api:
         if isinstance(playlist_items, dict) and "items" in playlist_items:
             return playlist_items["items"]
         return payload.get("items", [])
+
+    def first_playlist_item_path(self, playlist_id: str | int) -> str | None:
+        """Devuelve la ruta del primer elemento de una playlist sin modificarla."""
+        items = self.playlist_items(
+            playlist_id,
+            start=0,
+            end=1,
+            columns=["%path%"],
+        )
+        if not items:
+            return None
+        columns = items[0].get("columns") or []
+        return columns[0] if columns and columns[0] else None
 
     def current_path(self) -> str | None:
         player = self.player().get("player", {})

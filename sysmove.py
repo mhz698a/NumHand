@@ -18,6 +18,11 @@ from PyQt6.QtWidgets import (
 import syswall
 from sysprog import DualProgressDialog
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
+from pyutils.foobar2000_api import Foobar2000Api
+from pyutils.foobar_helpers import (
+    capture_foobar_file_move_state,
+    restore_foobar_after_file_move,
+)
 
 
 NUMBERING_RE = re.compile(r"^\d{2,3}\.\s")
@@ -584,7 +589,7 @@ def move_selected_files(parent, model):
     )
 
     locking_paths = selected_paths + (existing_paths if reorganize_destination else [])
-    locking_apps = syswall.get_locking_processes(locking_paths)
+    locking_apps = syswall.get_locking_processes(locking_paths, omit_fb=True)
     if locking_apps:
         apps_str = "\n• ".join(locking_apps)
         QMessageBox.warning(
@@ -595,6 +600,26 @@ def move_selected_files(parent, model):
             "\n\nCierra las aplicaciones manualmente antes de proceder.",
         )
         return
+
+    # Calcular la ruta final real de cada seleccionado, incluyendo los cambios de
+    # numeración del destino, antes de detener el archivo que pudiera estar reproduciéndose.
+    move_plan = (
+        build_destination_plan(existing_paths, selected_paths, remove_selected_numbering)
+        if reorganize_destination
+        else build_direct_move_plan(selected_paths, remove_selected_numbering)
+    )
+    selected_resolved = {Path(path).resolve() for path in selected_paths}
+    old_to_new_paths = {
+        str(Path(source).resolve()): str((target_folder / final_name).resolve())
+        for source, final_name in move_plan
+        if Path(source).resolve() in selected_resolved
+    }
+
+    foobar_state = capture_foobar_file_move_state(
+        Foobar2000Api(),
+        old_to_new_paths,
+        source_folder=source_folder,
+    )
 
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
     progress_dialog.show()
@@ -610,10 +635,19 @@ def move_selected_files(parent, model):
 
     def on_finished():
         progress_dialog.close()
+        restore_foobar_after_file_move(
+            foobar_state,
+            source_folder,
+            successful=True,
+        )
         parent.file_utils.sync_folder_cache(source_folder)
         parent.file_utils.sync_folder_cache(target_folder)
         model.set_all_checked(False)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -628,8 +662,19 @@ def move_selected_files(parent, model):
 
     def on_error(message):
         progress_dialog.close()
+        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
+        # canción desde su ruta original si la operación no terminó correctamente.
+        restore_foobar_after_file_move(
+            foobar_state,
+            source_folder,
+            successful=False,
+        )
         QMessageBox.critical(parent, "Error", message)
-        parent.file_utils.load_folder(parent, model)
+        parent.file_utils.load_folder(
+            parent,
+            model,
+            on_loaded=parent.select_first_file,
+        )
 
     task.signals.progress.connect(progress_dialog.update_progress)
     task.signals.finished.connect(on_finished)

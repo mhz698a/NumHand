@@ -66,6 +66,16 @@ class FileUtils:
         self.progress_dialog = DualProgressDialog("Cargando carpeta", parent)
         self.progress_dialog.show()
 
+        # Desseleccionar mientras el modelo aún contiene sus entradas válidas.
+        # El reset posterior invalida los índices antiguos y puede disparar
+        # selectionChanged con filas que ya no existen en model.files.
+        file_list = getattr(parent, "file_list", None)
+        if file_list is not None:
+            selection_model = file_list.selectionModel()
+            if selection_model is not None:
+                selection_model.clearSelection()
+                selection_model.clearCurrentIndex()
+
         model.clear_files()
         task = LoadFolderTask(parent.folder, self)
 
