@@ -295,7 +295,9 @@ class SubFolderController(QObject):
                     for p in target_dir.iterdir():
                         if p.is_file():
                             files_to_check.append(str(p))
-                            if len(files_to_check) > 50: # Limitar para rendimiento
+                            # Con las intervenciones desactivadas se revisan todos
+                            # los archivos para no omitir el archivo bloqueado por Foobar2000.
+                            if foobar_enabled and len(files_to_check) > 50:
                                 break
             
             foobar_enabled = get_foobar_interventions_enabled()
