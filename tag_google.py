@@ -31,6 +31,9 @@ def build_song_search_query(
             if part.strip()
         )
 
+    if not base_query:
+        return ""
+
     return " ".join(part for part in (base_query, qualifier) if part).strip()
 
 
