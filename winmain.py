@@ -1,4 +1,5 @@
 import os
+import logging
 import subprocess
 import platform
 from pathlib import Path
@@ -123,7 +124,11 @@ class WMain(QMainWindow):
     
     def _on_apply_tags_clicked(self):
         selected_indexes = self.file_list.selectionModel().selectedIndexes()
-        selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
+        selected_entries = [
+            self.model.files[index.row()]
+            for index in selected_indexes
+            if index.isValid() and 0 <= index.row() < len(self.model.files)
+        ]
         
         apply_panel_tags_to_selection(
             self.tagger_panel,  selected_entries, 
@@ -210,10 +215,19 @@ class WMain(QMainWindow):
             QMessageBox.critical(self, "Error de cache", str(error))
 
     def _on_file_selection_changed(self, selected, deselected):
-        """Se ejecuta cada vez que el usuario selecciona o desselecciona items en la lista."""
-        selected_indexes = self.file_list.selectionModel().selectedIndexes()
-        selected_entries = [self.model.files[idx.row()] for idx in selected_indexes]
-        update_tagger_panel(self.tagger_panel, selected_entries)
+        """Actualiza el panel sin asumir que los índices sobreviven a un reset del modelo."""
+        try:
+            selected_indexes = self.file_list.selectionModel().selectedIndexes()
+            selected_entries = [
+                self.model.files[index.row()]
+                for index in selected_indexes
+                if index.isValid() and 0 <= index.row() < len(self.model.files)
+            ]
+            update_tagger_panel(self.tagger_panel, selected_entries)
+        except Exception:
+            # Las señales de Qt no deben propagar excepciones fuera de un slot:
+            # según el entorno de ejecución, eso puede terminar el proceso sin traceback.
+            logging.exception("Error al actualizar la selección de archivos de NumHand")
 
     def copy_selected_paths(self):
         selected_files = self.model.checked_files()
