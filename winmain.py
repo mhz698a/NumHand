@@ -28,6 +28,10 @@ from tag_controller import apply_panel_tags_to_selection, update_tagger_panel
 from wstatusbar import setup_status_bar, show_status_message
 from widget_left_p import YearSubFolderPanel
 from sub_controller import SubFolderController
+from pyutils.foobar_settings import (
+    get_foobar_interventions_enabled,
+    set_foobar_interventions_enabled,
+)
 
 class WMain(QMainWindow):
 
@@ -192,6 +196,7 @@ class WMain(QMainWindow):
             None,
             ("Check Foobar2000 Playing File", lambda: check_foobar2000_playing_file(self)),
             ("Select Foobar2000 Playing File", lambda: select_foobar2000_playing_file(self)),
+            ("Activar/Desactivar Intervenciones a Foobar2000", self.toggle_foobar_interventions),
             ("Clear cache from more of 30 days ago", self.clear_old_folder_cache),
             None,
             ("Integrate Files in This Folder", lambda: self.file_utils.integrate_files(self, self.model)),
@@ -207,6 +212,23 @@ class WMain(QMainWindow):
             ("Copy Paths of selecction", self.copy_selected_paths),
             ("Copy Filenames of selecction", self.copy_selected_names),
         ])
+
+    def toggle_foobar_interventions(self):
+        """Pregunta y persiste si las operaciones de archivos interactúan con Foobar2000."""
+        state_flag = get_foobar_interventions_enabled()
+        new_state = not state_flag
+        answer = QMessageBox.information(
+            self,
+            "Intervenciones a Foobar2000",
+            "El manejo de playlist y player de foobar2000 esta en "
+            f"{state_flag} ¿Usted desea colocar el valor a {new_state}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        set_foobar_interventions_enabled(new_state)
 
     def clear_old_folder_cache(self):
         try:
