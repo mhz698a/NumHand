@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QRect, QEvent
 from PyQt6.QtGui import QColor
 from pathlib import Path
+from model import safe_display_text
 
 
 class FileDelegate(QStyledItemDelegate):
@@ -149,7 +150,7 @@ class FileDelegate(QStyledItemDelegate):
 
         file_entry = self.main_window.model.files[index.row()]
         clean_base_name = Path(file_entry.clean_name).stem
-        editor.setText(clean_base_name)
+        editor.setText(safe_display_text(clean_base_name))
         editor.selectAll()
 
     def setModelData(self, editor, model, index):

@@ -1,3 +1,4 @@
+import logging
 import uuid
 import re
 
@@ -25,7 +26,11 @@ class LoadFolderTask(QRunnable):
 
     @pyqtSlot()
     def run(self):
+        current_path = None
         try:
+            logger = logging.getLogger(__name__)
+            logger.info("Iniciando carga de carpeta: %r", self.folder_path)
+
             # Check backup if exists
             backup_path = self.folder_path / BACKUP_FILENAME
             if backup_path.exists():
@@ -38,21 +43,31 @@ class LoadFolderTask(QRunnable):
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
             files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
             total = len(files)
+            logger.info("Carpeta %r: %d archivos detectados", self.folder_path, total)
 
-            # Preparar y emitir cada entrada por separado. La lectura de metadatos
-            # ocurre en este worker, no en el hilo de la interfaz.
-            from model import FileEntry
+            # Metadata is loaded on demand by FileEntry.metadata, not here.
+            # Filename text is sanitized before crossing the Qt string boundary.
+            from model import FileEntry, safe_display_text
             for index, path in enumerate(files, start=1):
+                current_path = path
                 entry = FileEntry(path)
+                logger.debug("Preparando FileEntry para %r", path)
                 self.signals.file_loaded.emit(entry)
                 self.signals.progress.emit(
-                    index, total, f"Cargando archivo {index}/{total}: {path.name}",
+                    index, total,
+                    f"Cargando archivo {index}/{total}: {safe_display_text(path.name)}",
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
 
+            logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)
             self.signals.finished.emit(total)
-        except Exception as e:
-            self.signals.error.emit(str(e))
+        except Exception as error:
+            logging.getLogger(__name__).exception(
+                "Error al cargar carpeta %r; archivo actual: %r",
+                self.folder_path,
+                current_path,
+            )
+            self.signals.error.emit(str(error))
 
 
 class FormatHundredsTask(QRunnable):

@@ -37,6 +37,24 @@ def _compare_explorer_names(left, right):
     return (left_key > right_key) - (left_key < right_key)
 
 
+def _contains_surrogate(value):
+    return any(0xD800 <= ord(char) <= 0xDFFF for char in str(value))
+
+
+def _sort_names(items, get_name):
+    """Sort normally through Explorer; fall back for names Qt/UTF-8 cannot encode."""
+    names = [str(get_name(item)) for item in items]
+    if os.name == "nt" and not any(_contains_surrogate(name) for name in names):
+        items.sort(key=cmp_to_key(lambda left, right: _compare_explorer_names(
+            get_name(left), get_name(right)
+        )))
+    else:
+        # Keep the comparator consistent for the whole collection; don't mix
+        # native and Python comparisons when one filename has an isolated surrogate.
+        items.sort(key=lambda item: windows_explorer_sort_key(get_name(item)))
+    return items
+
+
 def _default_cache_path():
     appdata = os.environ.get("APPDATA")
     if appdata:
@@ -97,7 +115,13 @@ class FolderCache:
 
     @staticmethod
     def _key(folder):
-        return str(Path(folder).resolve())
+        key = str(Path(folder).resolve())
+        # sqlite3 cannot UTF-8 encode a path containing isolated UTF-16 surrogates.
+        # Use a reversible ASCII key only for that unusual case; normal cache keys
+        # remain unchanged for backward compatibility.
+        if _contains_surrogate(key):
+            return "surrogate-path:" + key.encode("utf-8", "surrogatepass").hex()
+        return key
 
     @staticmethod
     def _snapshot(folder, excluded_prefix):
@@ -117,8 +141,10 @@ class FolderCache:
                     continue
                 records.append((entry.name, info.st_size, info.st_mtime_ns))
                 total_size += info.st_size
-        records.sort(key=cmp_to_key(lambda left, right: _compare_explorer_names(left[0], right[0])))
-        fingerprint = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
+        _sort_names(records, lambda record: record[0])
+        # ASCII-escape unusual code points so SQLite never has to encode a
+        # surrogate-containing filename/fingerprint as UTF-8.
+        fingerprint = json.dumps(records, ensure_ascii=True, separators=(",", ":"))
         return records, len(records), total_size, fingerprint
 
     def list_files(self, folder, excluded_prefix=".__file_manager__"):
@@ -142,7 +168,7 @@ class FolderCache:
             ):
                 try:
                     cached_paths = [Path(item) for item in json.loads(row[1])]
-                    cached_paths.sort(key=cmp_to_key(lambda left, right: _compare_explorer_names(left.name, right.name)))
+                    _sort_names(cached_paths, lambda path: path.name)
                     if all(path.parent == folder for path in cached_paths):
                         connection.execute(
                             "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
@@ -153,7 +179,7 @@ class FolderCache:
                     pass
 
             paths = [folder / item[0] for item in records]
-            serialized = json.dumps([str(path) for path in paths], ensure_ascii=False)
+            serialized = json.dumps([str(path) for path in paths], ensure_ascii=True)
             connection.execute("""
                 INSERT INTO folder_cache(
                     folder_path, directory_mtime_ns, files_json, last_access,

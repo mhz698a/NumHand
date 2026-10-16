@@ -1,8 +1,12 @@
 from datetime import datetime
+import logging
 from pathlib import Path
 import mutagen
 
 from wconst import SUPPORTED_EXTENSIONS, MP3_EXT, DEFAULT_TAGS
+
+
+logger = logging.getLogger(__name__)
 
 def _parse_track_disc(value):
     """Formatea valores de tuplas o cadenas como track/disc (ej. 1/12)."""
@@ -73,6 +77,8 @@ def read_file_tags(file_path: Path) -> dict:
             tags["ctime"] = ""
 
     except Exception:
-        pass
+        # Do not fail folder browsing because one media file has malformed tags.
+        # Keep the default metadata and preserve the full diagnostic in the log.
+        logger.exception("Error leyendo metadatos del archivo %r", path)
 
     return tags

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from wcoverlabel import CoverLabel
 from tag_cover import read_cover_art, get_common_cover
 from tag_utilbox import UtilityLineEdit, UtilityTextEdit
+from model import safe_display_text
 
 class IndividualTaggerPanel(QWidget):
     def __init__(self, parent=None):
@@ -169,7 +170,7 @@ class IndividualTaggerPanel(QWidget):
             return
         
         if len(entries) == 1:
-            self.filename_field_rom.setText(entries[0].path.stem)
+            self.filename_field_rom.setText(safe_display_text(entries[0].path.stem))
         else:
             self.filename_field_rom.setText(f"{len(entries)} selected files")
 

@@ -1,3 +1,4 @@
+import logging
 import re
 from pathlib import Path
 from PyQt6.QtCore import (
@@ -7,12 +8,61 @@ from PyQt6.QtCore import (
 )
 
 from tag_reader import read_file_tags
+from wconst import DEFAULT_TAGS
+
+
+logger = logging.getLogger(__name__)
+
+
+def safe_display_text(value) -> str:
+    """Convert arbitrary filename/tag text to a string safe to pass to Qt."""
+    if value is None:
+        return ""
+
+    try:
+        text = value if isinstance(value, str) else str(value)
+    except Exception:
+        logger.exception("No se pudo convertir un valor del modelo a texto.")
+        return ""
+
+    # NTFS can contain unpaired UTF-16 surrogates. Qt text APIs expect Unicode
+    # scalar values, so replace surrogates/NUL only for display; never alter paths.
+    return "".join(
+        "\ufffd" if char == "\x00" or 0xD800 <= ord(char) <= 0xDFFF else char
+        for char in text
+    )
+
+
+def _normalize_metadata(metadata, file_path=None) -> dict:
+    """Keep a complete, independent metadata dictionary for each file entry."""
+    source = metadata if isinstance(metadata, dict) else {}
+    normalized = {}
+    for key, default in DEFAULT_TAGS.items():
+        try:
+            value = source.get(key, default)
+        except Exception:
+            logger.exception("No se pudo leer el metadato %r.", key)
+            value = default
+        text = safe_display_text(value)
+        if file_path is not None and isinstance(value, str) and text != value:
+            logger.warning(
+                "Se normalizó texto Unicode no válido en el metadato %r de %r.",
+                key,
+                file_path,
+            )
+        normalized[key] = text
+    return normalized
 
 class FileEntry:
     def __init__(self, path, is_checked=False):
         self.path = Path(path)
         self.original_path = self.path
         self.original_name = self.path.name
+        if any(0xD800 <= ord(char) <= 0xDFFF for char in self.original_name):
+            logger.warning(
+                "Nombre con sustituto Unicode aislado; se saneará solo al mostrarlo: %r",
+                self.path,
+            )
         self.is_checked = is_checked
 
         self.clean_name = re.sub(
@@ -25,16 +75,26 @@ class FileEntry:
         self.pending_name = None
         
         self.__metadata = None
-    
+        self.__metadata_loaded = False
+
     @property
     def metadata(self):
-        if self.__metadata is None:
-            self.__metadata = read_file_tags(self.path)
+        """Read tags on demand and cache a complete, normalized snapshot per entry."""
+        if not self.__metadata_loaded:
+            try:
+                loaded = read_file_tags(self.path)
+            except Exception:
+                logger.exception("No se pudieron leer metadatos para %r.", self.path)
+                loaded = {}
+            self.__metadata = _normalize_metadata(loaded, self.path)
+            self.__metadata_loaded = True
         return self.__metadata
 
     @metadata.setter
     def metadata(self, value):
-        self.__metadata = value
+        # Replacing metadata (e.g. after tag editing) also refreshes the cache.
+        self.__metadata = _normalize_metadata(value, self.path)
+        self.__metadata_loaded = True
 
 
 class FileModel(QAbstractListModel):
@@ -47,7 +107,11 @@ class FileModel(QAbstractListModel):
         return len(self.files)
 
     def flags(self, index):
-        if not index.isValid():
+        if (
+            not index.isValid()
+            or index.row() < 0
+            or index.row() >= len(self.files)
+        ):
             return Qt.ItemFlag.NoItemFlags
         return (
             Qt.ItemFlag.ItemIsEnabled
@@ -57,13 +121,19 @@ class FileModel(QAbstractListModel):
         )
 
     def data(self, index, role):
-        if not index.isValid():
+        # QModelIndex objects can outlive a reset while Qt processes queued
+        # view/selection events. Validate the row before indexing the Python list.
+        if (
+            not index.isValid()
+            or index.row() < 0
+            or index.row() >= len(self.files)
+        ):
             return None
 
         file = self.files[index.row()]
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            return file.pending_name or file.path.name
+            return safe_display_text(file.pending_name or file.path.name)
 
         if role == Qt.ItemDataRole.CheckStateRole:
             return Qt.CheckState.Checked if file.is_checked else Qt.CheckState.Unchecked
@@ -71,7 +141,11 @@ class FileModel(QAbstractListModel):
         return None
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
-        if not index.isValid():
+        if (
+            not index.isValid()
+            or index.row() < 0
+            or index.row() >= len(self.files)
+        ):
             return False
 
         file = self.files[index.row()]
@@ -159,6 +233,10 @@ class FileModel(QAbstractListModel):
         return [file for file in self.files if file.is_checked]
 
     def move_file(self, source_row, target_row):
+        if not self.files or source_row < 0 or source_row >= len(self.files):
+            return
+        if target_row < 0 or target_row > len(self.files):
+            return
         if source_row == target_row:
             return
 
