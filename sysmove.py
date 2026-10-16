@@ -684,8 +684,6 @@ def move_selected_files(parent, model):
     QThreadPool.globalInstance().start(task)
 
 
-
-
 def move_selected_files_to_year_subfolder(parent, model):
     selected_files = model.checked_files()
     if not selected_files:
@@ -862,6 +860,8 @@ def move_selected_files_to_year_subfolder(parent, model):
     task.signals.error.connect(on_error)
 
     QThreadPool.globalInstance().start(task)
+
+
 def move_selected_to_trash(parent, model):
     selected_files = model.checked_files()
     if not selected_files:
