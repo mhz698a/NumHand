@@ -196,7 +196,10 @@ class WMain(QMainWindow):
             None,
             ("Integrate Files in This Folder", lambda: self.file_utils.integrate_files(self, self.model)),
             ("Move Selected to Other Folder", lambda: move_selected_files(self, self.model)),
-            ("Move Selected to Year Subfolder", lambda: move_selected_files_to_year_subfolder(self, self.model)),
+            (
+                "Move Selected to Year Subfolder",
+                lambda: move_selected_files_to_year_subfolder(self, self.model),
+            ),
             ("Check Folder Enumeration", lambda: check_folder_numbering(self, self.model)),
             ("Set Recicle Bin Folder", lambda: set_trash_folder(self)),
             ("Move Selected to Recicle Bin Folder", lambda: move_selected_to_trash(self, self.model)),
