@@ -149,7 +149,7 @@ class FormatHundredsTask(QRunnable):
             for idx, item in enumerate(temp_files, start=1):
                 temp_path = item["temp_path"]
                 final_path = item["final_path"]
-                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
+                rename_with_retry(temp_path, final_path, max_attempts=10, delay=3.0)
                 item["file"].path = final_path
                 item["file"].original_path = final_path
                 item["file"].original_name = final_path.name
@@ -260,7 +260,7 @@ class IntegrateFilesTask(QRunnable):
 
                 # Mover todos de temp a final
                 for idx, tp in enumerate(temp_plan, start=1):
-                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
+                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=3.0)
                     self.signals.progress.emit(idx, len(temp_plan), f"Integrando (fase 2) {idx}/{len(temp_plan)}", 3, 3, "Aplicando nombres definitivos (Etapa 3 de 3)")
 
             else:
@@ -345,7 +345,7 @@ class IntegrateFilesTask(QRunnable):
                     self.signals.progress.emit(idx, len(temp_plan), f"Integrando (fase 1) {idx}/{len(temp_plan)}", 2, 3, "Renombrando a nombres temporales (Etapa 2 de 3)")
 
                 for idx, tp in enumerate(temp_plan, start=1):
-                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=2.0)
+                    rename_with_retry(tp["temp_path"], tp["final_path"], max_attempts=10, delay=3.0)
                     self.signals.progress.emit(idx, len(temp_plan), f"Integrando (fase 2) {idx}/{len(temp_plan)}", 3, 3, "Aplicando nombres definitivos (Etapa 3 de 3)")
 
             # Cargar carpeta actualizada al finalizar

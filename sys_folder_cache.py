@@ -160,23 +160,27 @@ class FolderCache:
                 "total_size_bytes, fingerprint FROM folder_cache WHERE folder_path = ?",
                 (key,),
             ).fetchone()
-            if row and (
-                row[0] == directory_mtime_ns
-                and row[2] == entry_count
-                and row[3] == total_size
-                and row[4] == fingerprint
-            ):
-                try:
-                    cached_paths = [Path(item) for item in json.loads(row[1])]
-                    _sort_names(cached_paths, lambda path: path.name)
-                    if all(path.parent == folder for path in cached_paths):
-                        connection.execute(
-                            "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
-                            (now, key),
-                        )
-                        return cached_paths
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    pass
+            if row:
+                cached_mtime, cached_json, cached_entry_count, cached_total_size, cached_fingerprint = row
+                # Verificar si el número de archivos o el tamaño total de archivos es distinto
+                if cached_entry_count != entry_count or cached_total_size != total_size:
+                    # Anular la cache existente por discrepancia en número de archivos o tamaño total
+                    connection.execute("DELETE FROM folder_cache WHERE folder_path = ?", (key,))
+                elif (
+                    cached_mtime == directory_mtime_ns
+                    and cached_fingerprint == fingerprint
+                ):
+                    try:
+                        cached_paths = [Path(item) for item in json.loads(cached_json)]
+                        _sort_names(cached_paths, lambda path: path.name)
+                        if all(path.parent == folder for path in cached_paths):
+                            connection.execute(
+                                "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
+                                (now, key),
+                            )
+                            return cached_paths
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        pass
 
             paths = [folder / item[0] for item in records]
             serialized = json.dumps([str(path) for path in paths], ensure_ascii=True)

@@ -3,11 +3,11 @@ import uuid
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from sysprog import DualProgressDialog
 from wconst import TEMP_PREFIX
-from wutils_sysfiles import is_folder_cleanly_enumerated
+from wutils_sysfiles import is_folder_cleanly_enumerated, get_unclean_enumeration_details
 
 
 class ApplyNonEnumSignals(QObject):
@@ -148,14 +148,24 @@ def apply_changes_non_enum(parent, model):
             parent.file_utils.apply_order(parent, model)
         return
 
-    confirmation = QMessageBox.question(
-        parent,
-        "Aplicar cambios sin enumerar",
-        "Esta carpeta no esta numerada o tiene numeración extraña y solo se habrá cambios de nombre ¿Desea continuar?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.No,
+    problematic_files = get_unclean_enumeration_details(paths)
+    parent_widget = parent if isinstance(parent, QWidget) else None
+    msg_box = QMessageBox(parent_widget)
+    msg_box.setIcon(QMessageBox.Icon.Question)
+    msg_box.setWindowTitle("Aplicar cambios sin enumerar")
+    msg_box.setText(
+        "Esta carpeta no esta numerada o tiene numeración extraña y solo se habrá cambios de nombre ¿Desea continuar?"
     )
-    if confirmation != QMessageBox.StandardButton.Yes:
+    if problematic_files:
+        msg_box.setDetailedText(
+            "Archivos con numeración incorrecta o inconsistente:\n"
+            + "\n".join(f"• {name}" for name in problematic_files)
+        )
+    msg_box.setStandardButtons(
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+    if msg_box.exec() != QMessageBox.StandardButton.Yes:
         return
 
     changes = [

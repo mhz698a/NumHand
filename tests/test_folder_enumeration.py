@@ -17,6 +17,11 @@ from wutils_sysfiles import is_folder_cleanly_enumerated
 
 
 class FolderEnumerationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
     def setUp(self):
         self.temp_dir = Path(tempfile.mkdtemp())
 
@@ -97,13 +102,15 @@ class FolderEnumerationTests(unittest.TestCase):
         file_utils.thread_pool = MagicMock()
         file_utils.check_files_locked = MagicMock(return_value=False)
 
-        with patch(
-            "sysfiles.QMessageBox.question",
-            return_value=QMessageBox.StandardButton.No,
-        ) as question:
+        with patch("sysfiles.QMessageBox") as mock_msgbox_class:
+            mock_msgbox_class.StandardButton = QMessageBox.StandardButton
+            mock_msgbox_class.Icon = QMessageBox.Icon
+            mock_inst = MagicMock()
+            mock_inst.exec.return_value = QMessageBox.StandardButton.No
+            mock_msgbox_class.return_value = mock_inst
             file_utils.apply_order(parent, model)
 
-        question.assert_called_once()
+        mock_inst.exec.assert_called_once()
         file_utils.check_files_locked.assert_not_called()
         file_utils.thread_pool.start.assert_not_called()
 
@@ -118,15 +125,17 @@ class FolderEnumerationTests(unittest.TestCase):
         file_utils.thread_pool = MagicMock()
         file_utils.check_files_locked = MagicMock(return_value=False)
 
-        with patch(
-            "sysfiles.QMessageBox.question",
-            return_value=QMessageBox.StandardButton.Yes,
-        ) as question:
+        with patch("sysfiles.QMessageBox") as mock_msgbox_class:
+            mock_msgbox_class.StandardButton = QMessageBox.StandardButton
+            mock_msgbox_class.Icon = QMessageBox.Icon
+            mock_inst = MagicMock()
+            mock_inst.exec.return_value = QMessageBox.StandardButton.Yes
+            mock_msgbox_class.return_value = mock_inst
             with patch("sysfiles.DualProgressDialog") as progress_dialog:
                 with patch("sysfiles.ApplyOrderTask") as task_class:
                     file_utils.apply_order(parent, model)
 
-        question.assert_called_once()
+        mock_inst.exec.assert_called_once()
         file_utils.check_files_locked.assert_called_once_with(parent, [path])
         task_class.assert_called_once_with(parent.folder, model.files, file_utils)
         progress_dialog.return_value.show.assert_called_once()

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QWidget,
     QPushButton,
     QVBoxLayout,
 )
@@ -152,6 +153,34 @@ def build_trash_move_plan(selected_paths, remove_selected_numbering):
         selected_paths,
         remove_selected_numbering,
     )
+
+
+def get_mixed_numbering_details(paths):
+    """Devuelve la lista de nombres de archivos que causan que la numeración sea mixta o incompleta."""
+    files = [Path(path) for path in paths if Path(path).is_file()]
+    files = [
+        path for path in files
+        if not path.name.startswith(TEMP_PREFIX)
+        and path.name != BACKUP_FILENAME
+    ]
+    if not files:
+        return []
+
+    two_digit_files = [f for f in files if re.match(r"^\d{2}\.\s", f.name)]
+    three_digit_files = [f for f in files if re.match(r"^\d{3}\.\s", f.name)]
+
+    if len(two_digit_files) >= len(three_digit_files) and len(two_digit_files) > 0:
+        majority_files = set(f.name for f in two_digit_files)
+    elif len(three_digit_files) > len(two_digit_files):
+        majority_files = set(f.name for f in three_digit_files)
+    else:
+        majority_files = set()
+
+    problematic = [f.name for f in files if f.name not in majority_files]
+    if not problematic:
+        problematic = [f.name for f in files]
+
+    return problematic
 
 
 def detect_folder_numbering(paths):
@@ -504,11 +533,19 @@ def check_folder_numbering(parent, model):
         "sin numerar": "La carpeta no está numerada.",
         "mixta": "La carpeta tiene una numeración mixta o incompleta.",
     }
-    QMessageBox.information(
-        parent,
-        "Comprobar Numeración de esta carpeta",
-        messages[numbering],
-    )
+    parent_widget = parent if isinstance(parent, QWidget) else None
+    msg_box = QMessageBox(parent_widget)
+    msg_box.setIcon(QMessageBox.Icon.Information)
+    msg_box.setWindowTitle("Comprobar Numeración de esta carpeta")
+    msg_box.setText(messages[numbering])
+    if numbering == "mixta":
+        problematic_files = get_mixed_numbering_details(paths)
+        if problematic_files:
+            msg_box.setDetailedText(
+                "Archivos con numeración inconsistente o incompleta:\n"
+                + "\n".join(f"• {name}" for name in problematic_files)
+            )
+    msg_box.exec()
 
 
 def move_selected_files(parent, model):
