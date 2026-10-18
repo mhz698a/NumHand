@@ -622,9 +622,15 @@ def move_selected_files(parent, model):
         parent,
         "Reorganizar carpeta de destino",
         "¿Deseas reorganizar y renumerar también los archivos de la carpeta de destino?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes
+        | QMessageBox.StandardButton.No
+        | QMessageBox.StandardButton.Cancel,
         QMessageBox.StandardButton.No,
     )
+
+    if reorganize_answer == QMessageBox.StandardButton.Cancel:
+        return
+
     reorganize_destination = (
         reorganize_answer == QMessageBox.StandardButton.Yes
     )
@@ -806,9 +812,15 @@ def move_selected_files_to_year_subfolder(parent, model):
         parent,
         "Reorganizar carpeta de destino",
         "¿Deseas reorganizar y renumerar también los archivos de la carpeta de destino?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes
+        | QMessageBox.StandardButton.No
+        | QMessageBox.StandardButton.Cancel,
         QMessageBox.StandardButton.No,
     )
+
+    if reorganize_answer == QMessageBox.StandardButton.Cancel:
+        return
+
     reorganize_destination = (
         reorganize_answer == QMessageBox.StandardButton.Yes
     )

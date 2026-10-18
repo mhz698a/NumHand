@@ -18,7 +18,7 @@ from wutils_sysfiles import (
     get_unclean_enumeration_details,
     get_classify_selected_details,
 )
-from sysmove import get_mixed_numbering_details, check_folder_numbering
+from sysmove import get_mixed_numbering_details, check_folder_numbering, move_selected_files
 from sysfiles import FileUtils
 from sys_folder_cache import FolderCache
 from tag_ngex import download_ng_stream
@@ -74,6 +74,41 @@ class InteractionImprovementsTests(unittest.TestCase):
             mock_inst.setDetailedText.assert_called_once()
             detailed_arg = mock_inst.setDetailedText.call_args[0][0]
             self.assertIn("001. b.mp3", detailed_arg)
+
+    def test_move_selected_files_cancels_when_reorganize_dialog_cancelled(self):
+        dest_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(dest_dir, ignore_errors=True))
+
+        file1 = self.temp_dir / "01. a.mp3"
+        file1.write_bytes(b"data")
+
+        parent = SimpleNamespace(
+            folder=self.temp_dir,
+            file_utils=FileUtils(),
+            select_first_file=MagicMock(),
+        )
+        model = MagicMock()
+        model.checked_files.return_value = [SimpleNamespace(path=file1)]
+
+        with patch("sysmove.get_foobar_interventions_enabled", return_value=False), \
+             patch("sysmove.QFileDialog.getExistingDirectory", return_value=str(dest_dir)), \
+             patch("sysmove.QMessageBox.question") as mock_question, \
+             patch("sysmove.MoveSelectedTask") as mock_task_cls:
+
+            # Return Yes for "Quitar numeración", Cancel for "Reorganizar carpeta de destino"
+            mock_question.side_effect = [
+                QMessageBox.StandardButton.Yes,
+                QMessageBox.StandardButton.Cancel,
+            ]
+
+            move_selected_files(parent, model)
+
+            # Reorganize question should have been called with Yes | No | Cancel
+            second_call_buttons = mock_question.call_args_list[1][0][3]
+            self.assertTrue(second_call_buttons & QMessageBox.StandardButton.Cancel)
+
+            # Task should NOT start because user cancelled
+            mock_task_cls.assert_not_called()
 
     # --- 2. Retry Delay 50% Increase Tests ---
     def test_retry_delays_increased_by_50_percent(self):
