@@ -5,13 +5,21 @@ import re
 import time
 
 from pathlib import Path
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 from PyQt6.QtCore import QThreadPool, Qt, QCoreApplication
 
 import syswall
 
 from sysprog import DualProgressDialog
-from wutils_sysfiles import compute_file_hash, is_folder_cleanly_numbered, is_folder_cleanly_enumerated, classify_selected_files, rename_with_retry
+from wutils_sysfiles import (
+    compute_file_hash,
+    is_folder_cleanly_numbered,
+    is_folder_cleanly_enumerated,
+    classify_selected_files,
+    rename_with_retry,
+    get_unclean_enumeration_details,
+    get_classify_selected_details,
+)
 from sysutils import LoadFolderTask, FormatHundredsTask, IntegrateFilesTask, ResetNumerationTask
 from sys_engine_dest import ApplyOrderTask
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -114,15 +122,25 @@ class FileUtils:
 
         file_paths = [f.path for f in model.files]
         if not is_folder_cleanly_enumerated(file_paths):
-            confirmation = QMessageBox.question(
-                parent,
-                "Carpeta sin enumeración correcta",
+            problematic_files = get_unclean_enumeration_details(file_paths)
+            parent_widget = parent if isinstance(parent, QWidget) else None
+            msg_box = QMessageBox(parent_widget)
+            msg_box.setIcon(QMessageBox.Icon.Question)
+            msg_box.setWindowTitle("Carpeta sin enumeración correcta")
+            msg_box.setText(
                 "La carpeta no está enumerada correctamente o la secuencia tiene saltos.\n\n"
-                "¿Deseas enumerar la carpeta al aplicar los cambios?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                "¿Deseas enumerar la carpeta al aplicar los cambios?"
             )
-            if confirmation != QMessageBox.StandardButton.Yes:
+            if problematic_files:
+                msg_box.setDetailedText(
+                    "Archivos con numeración incorrecta o fuera de secuencia:\n"
+                    + "\n".join(f"• {name}" for name in problematic_files)
+                )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+            if msg_box.exec() != QMessageBox.StandardButton.Yes:
                 return
 
         if self.check_files_locked(parent, file_paths):
@@ -234,16 +252,26 @@ class FileUtils:
         selected_case = classify_selected_files(selected_paths)
 
         if folder_is_numbered and selected_case == "CASE_3_STRANGE_OR_GAPS":
-            confirm = QMessageBox.question(
-                parent,
-                "Formato no estándar o numeración incompleta",
+            problematic_files = get_classify_selected_details(selected_paths)
+            parent_widget = parent if isinstance(parent, QWidget) else None
+            msg_box = QMessageBox(parent_widget)
+            msg_box.setIcon(QMessageBox.Icon.Question)
+            msg_box.setWindowTitle("Formato no estándar o numeración incompleta")
+            msg_box.setText(
                 "Los archivos seleccionados tienen formatos extraños de numeración o saltos en la secuencia.\n\n"
                 "Se limpiará su formato de inicio, se ordenarán alfabéticamente y se les añadirá numeración "
-                "continua al final de la carpeta destino.\n\n¿Deseas continuar?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
+                "continua al final de la carpeta destino.\n\n¿Deseas continuar?"
             )
-            if confirm != QMessageBox.StandardButton.Yes:
+            if problematic_files:
+                msg_box.setDetailedText(
+                    "Archivos seleccionados con numeración no estándar o incompleta:\n"
+                    + "\n".join(f"• {name}" for name in problematic_files)
+                )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+            if msg_box.exec() != QMessageBox.StandardButton.Yes:
                 return
 
         progress_dialog = DualProgressDialog("Integrar Archivos", parent)
@@ -464,7 +492,7 @@ class FileUtils:
             or getattr(error, "winerror", None) in {32, 33}
         )
 
-    def _read_backup_with_retry(self, backup_path, max_attempts=10, delay=1.0):
+    def _read_backup_with_retry(self, backup_path, max_attempts=10, delay=1.5):
         for attempt in range(1, max_attempts + 1):
             try:
                 with backup_path.open("r", encoding="utf-8") as backup_file:
@@ -484,7 +512,7 @@ class FileUtils:
 
         raise RuntimeError("No se pudo acceder al respaldo.")
 
-    def _unlink_backup_with_retry(self, backup_path, max_attempts=10, delay=1.0):
+    def _unlink_backup_with_retry(self, backup_path, max_attempts=10, delay=1.5):
         for attempt in range(1, max_attempts + 1):
             try:
                 backup_path.unlink()
@@ -592,7 +620,7 @@ class FileUtils:
                     current_path,
                     recovery_path,
                     max_attempts=10,
-                    delay=1.0
+                    delay=1.5
                 )
 
                 recovery_temp_files.append({
@@ -605,7 +633,7 @@ class FileUtils:
                     item["recovery_path"],
                     item["original_path"],
                     max_attempts=10,
-                    delay=1.0
+                    delay=1.5
                 )
 
             for item in recovery_plan:
@@ -628,7 +656,7 @@ class FileUtils:
                             recovery_path,
                             original_path,
                             max_attempts=10,
-                            delay=1.0
+                            delay=1.5
                         )
                     except Exception:
                         pass

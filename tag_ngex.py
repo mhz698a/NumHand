@@ -175,7 +175,7 @@ def download_ng_stream(mp3_url, dest_path, progress_callback=None, chunk_size=64
         
         # --- REINTENTOS PARA EVITAR WINERROR 32 / 33 ---
         max_retries = 5
-        delay = 3
+        delay = 4.5
         last_exception = None
 
         for attempt in range(max_retries):

@@ -45,7 +45,7 @@ def _set_creation_time(path: str, ts: float):
     kernel32.SetFileTime(handle, ctypes.byref(ft), None, None)
     kernel32.CloseHandle(handle)
 
-def setctime_blocking(path: str, ts: float, retry: float = 0.9):
+def setctime_blocking(path: str, ts: float, retry: float = 1.35):
     """
     Equivalente Windows a os.utime para Creation Time.
     Espera hasta que el archivo se libere.

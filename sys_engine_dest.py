@@ -130,7 +130,7 @@ class ApplyOrderTask(QRunnable):
             for idx, item in enumerate(temp_files, start=1):
                 temp_path = item["temp_path"]
                 final_path = item["final_path"]
-                rename_with_retry(temp_path, final_path, max_attempts=10, delay=2.0)
+                rename_with_retry(temp_path, final_path, max_attempts=10, delay=3.0)
                 item["file"].path = final_path
                 item["file"].clean_name = re.sub(r"^\d+(?:_|\.\s*)", "", final_path.name)
                 self.signals.progress.emit(
