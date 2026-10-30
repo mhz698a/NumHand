@@ -70,7 +70,6 @@ def test_sync_folder_persists_known_paths_without_scanning(tmp_path, monkeypatch
     }
 
 
-
 def test_load_folder_keeps_intentional_50ms_delay_per_file(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
@@ -85,7 +84,11 @@ def test_load_folder_keeps_intentional_50ms_delay_per_file(tmp_path, monkeypatch
     cache.list_files(folder)
 
     delays = []
-    monkeypatch.setattr(sysutils.QThread, "msleep", delays.append)
+    monkeypatch.setattr(
+        sysutils,
+        "QThread",
+        SimpleNamespace(msleep=delays.append),
+    )
 
     file_utils = SimpleNamespace(
         folder_cache=cache,
