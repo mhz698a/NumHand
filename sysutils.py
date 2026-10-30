@@ -79,7 +79,8 @@ class LoadFolderTask(QRunnable):
                     f"Cargando archivo {index}/{total}: {safe_display_text(path.name)}",
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
-            
+
+                # Pausa intencional para espaciar la inserción de archivos en la vista.
                 QThread.msleep(50)
 
             logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)
