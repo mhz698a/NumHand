@@ -54,8 +54,17 @@ def test_sync_folder_persists_known_paths_without_scanning(tmp_path, monkeypatch
 
     monkeypatch.setattr(sys_folder_cache.os, "scandir", unexpected_scan)
 
-    updated = cache.sync_folder(folder, files=paths)
+    progress = []
+    updated = cache.sync_folder(
+        folder,
+        files=paths,
+        progress_callback=lambda current, total, path: progress.append(
+            (current, total, path.name)
+        ),
+    )
     assert {path.name for path in updated} == {path.name for path in paths}
+    assert [item[2] for item in progress] == ["track2.mp3", "track10.mp3"]
+    assert all(total == 2 for _, total, _ in progress)
     assert {path.name for path in cache.get_cached_files(folder)} == {
         path.name for path in paths
     }
