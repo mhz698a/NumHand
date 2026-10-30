@@ -543,14 +543,15 @@ class MoveSelectedTask(QRunnable):
             def cache_progress(current, total, path):
                 nonlocal cache_processed
                 cache_processed += 1
-                self._emit_progress(
-                    cache_processed,
-                    cache_total,
-                    f"Actualizando índice: {path.name}",
-                    5 + self.phase_offset,
-                    self.phase_total,
-                    f"Actualizando caché de carpetas (Etapa {5 + self.phase_offset} de {self.phase_total})",
-                )
+                if cache_processed % 10 == 0 or cache_processed == cache_total:
+                    self._emit_progress(
+                        cache_processed,
+                        cache_total,
+                        f"Actualizando índice: {path.name}",
+                        5 + self.phase_offset,
+                        self.phase_total,
+                        f"Actualizando caché de carpetas (Etapa {5 + self.phase_offset} de {self.phase_total})",
+                    )
 
             if self.folder_cache is not None:
                 try:
@@ -570,7 +571,7 @@ class MoveSelectedTask(QRunnable):
                     print(f"No se pudo actualizar la caché tras mover archivos: {cache_error}")
 
             self._emit_progress(
-                max(cache_processed, 1),
+                max(cache_total, 1),
                 max(cache_total, 1),
                 "Caché de origen y destino actualizada",
                 5 + self.phase_offset,
@@ -578,24 +579,29 @@ class MoveSelectedTask(QRunnable):
                 f"Actualizando caché de carpetas (Etapa {5 + self.phase_offset} de {self.phase_total})",
             )
 
-            if self.foobar_state is not None:
-                self._emit_progress(
-                    0,
-                    0,
-                    "Sincronizando reproducción y playlist de Foobar2000...",
-                    6 + self.phase_offset,
-                    self.phase_total,
-                    f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
-                )
-                restore_foobar_after_file_move(
-                    self.foobar_state,
-                    self.source_folder,
-                    successful=True,
-                )
+            if self.foobar_enabled:
+                if self.foobar_state is not None:
+                    self._emit_progress(
+                        0,
+                        0,
+                        "Sincronizando reproducción y playlist de Foobar2000...",
+                        6 + self.phase_offset,
+                        self.phase_total,
+                        f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
+                    )
+                    restore_foobar_after_file_move(
+                        self.foobar_state,
+                        self.source_folder,
+                        successful=True,
+                    )
+                    final_label = "Foobar2000 sincronizado"
+                else:
+                    final_label = "Foobar2000 no requirió sincronización"
+
                 self._emit_progress(
                     1,
                     1,
-                    "Foobar2000 sincronizado",
+                    final_label,
                     6 + self.phase_offset,
                     self.phase_total,
                     f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
