@@ -36,7 +36,7 @@ SETTINGS_APPLICATION = "NumHand"
 
 class MoveSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)
-    finished = pyqtSignal()
+    finished = pyqtSignal(object, object)
     error = pyqtSignal(str)
 
 
@@ -481,7 +481,23 @@ class MoveSelectedTask(QRunnable):
                     "Cerrando huecos en la carpeta de origen (Etapa 4 de 4)",
                 )
 
-            self.signals.finished.emit()
+            source_files_after = (
+                [self.source_folder / final_name for _, final_name in source_plan]
+                if self.reorganize_source
+                else source_remaining
+            )
+            if self.reorganize_destination:
+                destination_files_after = [
+                    self.target_folder / final_name
+                    for _, final_name in destination_plan
+                ]
+            else:
+                destination_files_after = destination_existing + [
+                    self.target_folder / final_name
+                    for _, final_name in destination_plan
+                ]
+
+            self.signals.finished.emit(source_files_after, destination_files_after)
 
         except Exception as error:
             for final_path, temp_path in reversed(finalized):
@@ -682,7 +698,7 @@ def move_selected_files(parent, model):
         reorganize_source,
     )
 
-    def on_finished():
+    def on_finished(source_files, destination_files):
         progress_dialog.close()
         if foobar_state is not None:
             restore_foobar_after_file_move(
@@ -690,14 +706,16 @@ def move_selected_files(parent, model):
                 source_folder,
                 successful=True,
             )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(target_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
+        source_files = parent.file_utils.sync_folder_cache(
+            source_folder,
+            files=source_files,
+        ) or source_files
+        parent.file_utils.sync_folder_cache(
+            target_folder,
+            files=destination_files,
         )
+        model.set_files(source_files)
+        parent.select_first_file()
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -725,6 +743,7 @@ def move_selected_files(parent, model):
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)
@@ -872,7 +891,7 @@ def move_selected_files_to_year_subfolder(parent, model):
         reorganize_source,
     )
 
-    def on_finished():
+    def on_finished(source_files, destination_files):
         progress_dialog.close()
         if foobar_state is not None:
             restore_foobar_after_file_move(
@@ -880,14 +899,16 @@ def move_selected_files_to_year_subfolder(parent, model):
                 source_folder,
                 successful=True,
             )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(target_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
+        source_files = parent.file_utils.sync_folder_cache(
+            source_folder,
+            files=source_files,
+        ) or source_files
+        parent.file_utils.sync_folder_cache(
+            target_folder,
+            files=destination_files,
         )
+        model.set_files(source_files)
+        parent.select_first_file()
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -915,6 +936,7 @@ def move_selected_files_to_year_subfolder(parent, model):
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)
@@ -1063,7 +1085,7 @@ def move_selected_to_trash(parent, model):
         reorganize_source,
     )
 
-    def on_finished():
+    def on_finished(source_files, destination_files):
         progress_dialog.close()
         if foobar_state is not None:
             restore_foobar_after_file_move(
@@ -1071,14 +1093,16 @@ def move_selected_to_trash(parent, model):
                 source_folder,
                 successful=True,
             )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(trash_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
+        source_files = parent.file_utils.sync_folder_cache(
+            source_folder,
+            files=source_files,
+        ) or source_files
+        parent.file_utils.sync_folder_cache(
+            trash_folder,
+            files=destination_files,
         )
+        model.set_files(source_files)
+        parent.select_first_file()
         QMessageBox.information(
             parent,
             "Éxito",
@@ -1103,6 +1127,7 @@ def move_selected_to_trash(parent, model):
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)
