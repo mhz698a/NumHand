@@ -75,13 +75,23 @@ class FileUtils:
         self.load_folder(parent, model)
         
 
-    def load_folder(self, parent, model, on_loaded=None, force_refresh=False):
-        """Carga la carpeta en segundo plano; force_refresh omite la lista cacheada."""
+    def load_folder(
+        self,
+        parent,
+        model,
+        on_loaded=None,
+        force_refresh=False,
+        progress_dialog=None,
+    ):
+        """Carga la lista en segundo plano y puede reutilizar un diálogo de progreso existente."""
         if not parent.folder or not parent.folder.exists():
             return
 
-        self.progress_dialog = DualProgressDialog("Cargando carpeta", parent)
-        self.progress_dialog.show()
+        dialog = progress_dialog
+        if dialog is None:
+            dialog = DualProgressDialog("Cargando carpeta", parent)
+            dialog.show()
+        self.progress_dialog = dialog
 
         # Desseleccionar mientras el modelo aún contiene sus entradas válidas.
         # El reset posterior invalida los índices antiguos y puede disparar
@@ -97,16 +107,16 @@ class FileUtils:
         task = LoadFolderTask(parent.folder, self, force_refresh=force_refresh)
 
         def on_finished(files_loaded):
-            self.progress_dialog.close()
+            dialog.close()
             QCoreApplication.processEvents()
             if on_loaded is not None:
                 on_loaded()
 
         def on_error(err_msg):
-            self.progress_dialog.close()
+            dialog.close()
             QMessageBox.critical(parent, "Error", err_msg)
 
-        task.signals.progress.connect(self.progress_dialog.update_progress)
+        task.signals.progress.connect(dialog.update_progress)
         task.signals.file_loaded.connect(model.add_file)
         task.signals.finished.connect(on_finished)
         task.signals.error.connect(on_error)
