@@ -165,7 +165,7 @@ class WMain(QMainWindow):
         # ----------------------------------------
         add_menu_items(barra_menu.addMenu("&File"), [
             ("&Load Custom Oring Folder", lambda: self.file_utils.select_folder(self, self.model), "Ctrl+O"),
-            ("&Refresh Current Oring Folder", lambda: self.file_utils.load_folder(self, self.model), "F5"),
+            ("&Refresh Current Oring Folder", lambda: self.file_utils.load_folder(self, self.model, force_refresh=True), "F5"),
             ("&Open Current Oring Folder", self.openFolderExplorer, "Ctrl+P"),
             None,
             ("&Apply changes", lambda: self.file_utils.apply_order(self, self.model), "Ctrl+S"),
