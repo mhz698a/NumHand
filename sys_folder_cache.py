@@ -4,6 +4,7 @@ import os
 import re
 from functools import cmp_to_key
 import sqlite3
+import stat
 import time
 from pathlib import Path
 
@@ -147,6 +148,102 @@ class FolderCache:
         fingerprint = json.dumps(records, ensure_ascii=True, separators=(",", ":"))
         return records, len(records), total_size, fingerprint
 
+    def get_cached_files(self, folder, excluded_prefix=".__file_manager__"):
+        """Return a cached listing without enumerating the directory.
+
+        The directory timestamp is a cheap invalidation signal for additions,
+        removals, and renames. Missing cached entries also invalidate the fast
+        path. Use list_files() or an explicit UI refresh for a full metadata scan.
+        """
+        folder = Path(folder).resolve()
+        try:
+            directory_mtime_ns = folder.stat().st_mtime_ns
+        except OSError:
+            return None
+
+        key = self._key(folder)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT directory_mtime_ns, files_json FROM folder_cache "
+                "WHERE folder_path = ?",
+                (key,),
+            ).fetchone()
+            if row and row[0] == directory_mtime_ns:
+                connection.execute(
+                    "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
+                    (time.time(), key),
+                )
+
+        if not row or row[0] != directory_mtime_ns:
+            return None
+
+        try:
+            paths = [Path(item) for item in json.loads(row[1])]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+        for path in paths:
+            if path.parent != folder or path.name.startswith(excluded_prefix):
+                return None
+            try:
+                if not path.is_file():
+                    return None
+            except OSError:
+                return None
+
+        _sort_names(paths, lambda path: path.name)
+        return paths
+
+    def _cache_known_files(self, folder, files, excluded_prefix, progress_callback=None):
+        """Persist a caller-supplied listing without scanning the directory."""
+        records = []
+        total_size = 0
+        files = list(files)
+        total_files = len(files)
+        for index, value in enumerate(files, start=1):
+            path = Path(value)
+            if not path.is_absolute():
+                path = folder / path
+            if path.parent.resolve() != folder or path.name.startswith(excluded_prefix):
+                continue
+            try:
+                info = path.stat()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                continue
+            records.append((path.name, info.st_size, info.st_mtime_ns))
+            total_size += info.st_size
+            if progress_callback is not None:
+                progress_callback(index, total_files, path)
+
+        _sort_names(records, lambda record: record[0])
+        fingerprint = json.dumps(records, ensure_ascii=True, separators=(",", ":"))
+        paths = [folder / item[0] for item in records]
+        serialized = json.dumps([str(path) for path in paths], ensure_ascii=True)
+        directory_mtime_ns = folder.stat().st_mtime_ns
+        now = time.time()
+        key = self._key(folder)
+
+        with self._connect() as connection:
+            connection.execute("""
+                INSERT INTO folder_cache(
+                    folder_path, directory_mtime_ns, files_json, last_access,
+                    entry_count, total_size_bytes, fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(folder_path) DO UPDATE SET
+                    directory_mtime_ns = excluded.directory_mtime_ns,
+                    files_json = excluded.files_json,
+                    last_access = excluded.last_access,
+                    entry_count = excluded.entry_count,
+                    total_size_bytes = excluded.total_size_bytes,
+                    fingerprint = excluded.fingerprint
+            """, (
+                key, directory_mtime_ns, serialized, now,
+                len(records), total_size, fingerprint,
+            ))
+        return paths
+
     def list_files(self, folder, excluded_prefix=".__file_manager__"):
         folder = Path(folder).resolve()
         key = self._key(folder)
@@ -202,8 +299,18 @@ class FolderCache:
             ))
         return paths
 
-    def sync_folder(self, folder, excluded_prefix=".__file_manager__"):
-        """Refresh the persisted listing after an application-managed change."""
+    def sync_folder(
+        self,
+        folder,
+        excluded_prefix=".__file_manager__",
+        files=None,
+        progress_callback=None,
+    ):
+        """Refresh the listing after a managed change.
+
+        When the caller already knows the resulting paths, persist those paths
+        directly and only stat the supplied files. Otherwise perform a full scan.
+        """
         folder = Path(folder).resolve()
         # Explicitly stamp successful changes where filesystem timestamp precision permits.
         try:
@@ -211,6 +318,15 @@ class FolderCache:
         except OSError:
             # Cache refresh remains useful on read-only/unsupported filesystems.
             pass
+
+        if files is not None:
+            return self._cache_known_files(
+                folder,
+                files,
+                excluded_prefix,
+                progress_callback=progress_callback,
+            )
+
         key = self._key(folder)
         with self._connect() as connection:
             connection.execute("DELETE FROM folder_cache WHERE folder_path = ?", (key,))

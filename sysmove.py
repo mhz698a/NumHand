@@ -36,7 +36,7 @@ SETTINGS_APPLICATION = "NumHand"
 
 class MoveSignals(QObject):
     progress = pyqtSignal(int, int, str, int, int, str)
-    finished = pyqtSignal()
+    finished = pyqtSignal(object, object)
     error = pyqtSignal(str)
 
 
@@ -276,6 +276,9 @@ class MoveSelectedTask(QRunnable):
         remove_selected_numbering,
         reorganize_destination,
         reorganize_source=True,
+        folder_cache=None,
+        foobar_enabled=False,
+        old_to_new_paths=None,
     ):
         super().__init__()
         self.source_folder = Path(source_folder)
@@ -284,6 +287,12 @@ class MoveSelectedTask(QRunnable):
         self.remove_selected_numbering = remove_selected_numbering
         self.reorganize_destination = reorganize_destination
         self.reorganize_source = reorganize_source
+        self.folder_cache = folder_cache
+        self.foobar_enabled = bool(foobar_enabled)
+        self.old_to_new_paths = dict(old_to_new_paths or {})
+        self.foobar_state = None
+        self.phase_offset = 1 if self.foobar_enabled else 0
+        self.phase_total = 5 + (2 * self.phase_offset)
         self.signals = MoveSignals()
 
     def _emit_progress(self, current, total, label, phase, phase_total, phase_label):
@@ -349,13 +358,41 @@ class MoveSelectedTask(QRunnable):
             total_source = len(source_plan)
             total_work = max(total_move + total_destination + total_source, 1)
 
+            if self.foobar_enabled:
+                self._emit_progress(
+                    0,
+                    0,
+                    "Consultando el estado de Foobar2000...",
+                    1,
+                    self.phase_total,
+                    f"Preparando Foobar2000 (Etapa 1 de {self.phase_total})",
+                )
+                try:
+                    self.foobar_state = capture_foobar_file_move_state(
+                        Foobar2000Api(),
+                        self.old_to_new_paths,
+                        source_folder=self.source_folder,
+                    )
+                except Exception as foobar_error:
+                    # La integración opcional con Foobar2000 nunca debe impedir
+                    # que se realice el movimiento de archivos.
+                    print(f"No se pudo capturar el estado de Foobar2000: {foobar_error}")
+                self._emit_progress(
+                    1,
+                    1,
+                    "Estado de Foobar2000 revisado",
+                    1,
+                    self.phase_total,
+                    f"Preparando Foobar2000 (Etapa 1 de {self.phase_total})",
+                )
+
             self._emit_progress(
                 0,
                 total_work,
                 "Preparando movimiento...",
-                1,
-                4,
-                "Moviendo archivos seleccionados (Etapa 1 de 4)",
+                1 + self.phase_offset,
+                self.phase_total,
+                f"Moviendo archivos seleccionados (Etapa {1 + self.phase_offset} de {self.phase_total})",
             )
 
             for index, source_path in enumerate(self.selected_paths, start=1):
@@ -367,18 +404,18 @@ class MoveSelectedTask(QRunnable):
                     index,
                     total_work,
                     f"Moviendo seleccionado {index}/{total_move}",
-                    1,
-                    4,
-                    "Moviendo archivos seleccionados (Etapa 1 de 4)",
+                    1 + self.phase_offset,
+                    self.phase_total,
+                    f"Moviendo archivos seleccionados (Etapa {1 + self.phase_offset} de {self.phase_total})",
                 )
 
             self._emit_progress(
                 total_move,
                 total_work,
                 "Preparando renombrado...",
-                2,
-                4,
-                "Preparando destino y origen (Etapa 2 de 4)",
+                2 + self.phase_offset,
+                self.phase_total,
+                f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
             )
 
             if self.reorganize_destination:
@@ -399,9 +436,9 @@ class MoveSelectedTask(QRunnable):
                         total_move + index,
                         total_work,
                         f"Preparando destino {index}/{len(existing_for_stage)}",
-                        2,
-                        4,
-                        "Preparando destino y origen (Etapa 2 de 4)",
+                        2 + self.phase_offset,
+                        self.phase_total,
+                        f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
                     )
 
             source_for_stage = [source for source, _ in source_plan]
@@ -414,9 +451,9 @@ class MoveSelectedTask(QRunnable):
                     total_move + index,
                     total_work,
                     f"Preparando origen {index}/{total_source}",
-                    2,
-                    4,
-                    "Preparando destino y origen (Etapa 2 de 4)",
+                    2 + self.phase_offset,
+                    self.phase_total,
+                    f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
                 )
 
             destination_lookup = {
@@ -434,9 +471,9 @@ class MoveSelectedTask(QRunnable):
                 0,
                 total_work,
                 "Aplicando cambios...",
-                3,
-                4,
-                "Aplicando nombres definitivos (Etapa 3 de 4)",
+                3 + self.phase_offset,
+                self.phase_total,
+                f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
             )
 
             for index, (original_source, final_name) in enumerate(
@@ -455,9 +492,9 @@ class MoveSelectedTask(QRunnable):
                     total_move + index,
                     total_work,
                     f"Actualizando destino {index}/{total_destination}",
-                    3,
-                    4,
-                    "Aplicando nombres definitivos (Etapa 3 de 4)",
+                    3 + self.phase_offset,
+                    self.phase_total,
+                    f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
                 )
 
             for index, (original_source, final_name) in enumerate(
@@ -476,12 +513,101 @@ class MoveSelectedTask(QRunnable):
                     total_move + total_destination + index,
                     total_work,
                     f"Reorganizando origen {index}/{total_source}",
-                    4,
-                    4,
-                    "Cerrando huecos en la carpeta de origen (Etapa 4 de 4)",
+                    4 + self.phase_offset,
+                    self.phase_total,
+                    f"Cerrando huecos en la carpeta de origen (Etapa {4 + self.phase_offset} de {self.phase_total})",
                 )
 
-            self.signals.finished.emit()
+            source_files_after = (
+                [self.source_folder / final_name for _, final_name in source_plan]
+                if self.reorganize_source
+                else source_remaining
+            )
+            if self.reorganize_destination:
+                destination_files_after = [
+                    self.target_folder / final_name
+                    for _, final_name in destination_plan
+                ]
+            else:
+                destination_files_after = destination_existing + [
+                    self.target_folder / final_name
+                    for _, final_name in destination_plan
+                ]
+
+            # Actualizar ambas entradas de caché con las rutas ya conocidas.
+            # Este trabajo puede implicar miles de stat(); hacerlo aquí evita
+            # bloquear el hilo de interfaz al terminar el movimiento.
+            cache_total = len(source_files_after) + len(destination_files_after)
+            cache_processed = 0
+
+            def cache_progress(current, total, path):
+                nonlocal cache_processed
+                cache_processed += 1
+                if cache_processed % 10 == 0 or cache_processed == cache_total:
+                    self._emit_progress(
+                        cache_processed,
+                        cache_total,
+                        f"Actualizando índice: {path.name}",
+                        5 + self.phase_offset,
+                        self.phase_total,
+                        f"Actualizando caché de carpetas (Etapa {5 + self.phase_offset} de {self.phase_total})",
+                    )
+
+            if self.folder_cache is not None:
+                try:
+                    self.folder_cache.sync_folder(
+                        self.source_folder,
+                        files=source_files_after,
+                        progress_callback=cache_progress,
+                    )
+                    self.folder_cache.sync_folder(
+                        self.target_folder,
+                        files=destination_files_after,
+                        progress_callback=cache_progress,
+                    )
+                except Exception as cache_error:
+                    # Una incidencia de caché no revierte archivos que ya se
+                    # movieron correctamente. La carga posterior podrá escanear.
+                    print(f"No se pudo actualizar la caché tras mover archivos: {cache_error}")
+
+            self._emit_progress(
+                max(cache_total, 1),
+                max(cache_total, 1),
+                "Caché de origen y destino actualizada",
+                5 + self.phase_offset,
+                self.phase_total,
+                f"Actualizando caché de carpetas (Etapa {5 + self.phase_offset} de {self.phase_total})",
+            )
+
+            if self.foobar_enabled:
+                if self.foobar_state is not None:
+                    self._emit_progress(
+                        0,
+                        0,
+                        "Sincronizando reproducción y playlist de Foobar2000...",
+                        6 + self.phase_offset,
+                        self.phase_total,
+                        f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
+                    )
+                    restore_foobar_after_file_move(
+                        self.foobar_state,
+                        self.source_folder,
+                        successful=True,
+                    )
+                    final_label = "Foobar2000 sincronizado"
+                else:
+                    final_label = "Foobar2000 no requirió sincronización"
+
+                self._emit_progress(
+                    1,
+                    1,
+                    final_label,
+                    6 + self.phase_offset,
+                    self.phase_total,
+                    f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
+                )
+
+            self.signals.finished.emit(source_files_after, destination_files_after)
 
         except Exception as error:
             for final_path, temp_path in reversed(finalized):
@@ -512,7 +638,42 @@ class MoveSelectedTask(QRunnable):
                 except Exception:
                     pass
 
+            if self.foobar_state is not None:
+                try:
+                    restore_foobar_after_file_move(
+                        self.foobar_state,
+                        self.source_folder,
+                        successful=False,
+                    )
+                except Exception as foobar_error:
+                    print(f"No se pudo restaurar Foobar2000 tras revertir el movimiento: {foobar_error}")
+
             self.signals.error.emit(f"Error durante el movimiento de archivos: {error}")
+
+
+def _finish_move_with_progress(parent, model, progress_dialog, success_message):
+    """Mantiene visible el progreso mientras la lista se reconstruye desde caché."""
+    progress_dialog.update_progress(
+        0,
+        0,
+        "Preparando la lista de archivos actualizada...",
+        1,
+        1,
+        "Actualizando la vista después del movimiento",
+    )
+
+    def on_loaded():
+        parent.select_first_file()
+        QMessageBox.information(parent, "Éxito", success_message)
+
+    # La carga reutiliza el diálogo actual. LoadFolderTask consulta la caché,
+    # emite el progreso por archivo y conserva la pausa intencional de 50 ms.
+    parent.file_utils.load_folder(
+        parent,
+        model,
+        on_loaded=on_loaded,
+        progress_dialog=progress_dialog,
+    )
 
 
 def check_folder_numbering(parent, model):
@@ -662,14 +823,6 @@ def move_selected_files(parent, model):
         if Path(source).resolve() in selected_resolved
     }
 
-    foobar_state = None
-    if foobar_enabled:
-        foobar_state = capture_foobar_file_move_state(
-            Foobar2000Api(),
-            old_to_new_paths,
-            source_folder=source_folder,
-        )
-
     progress_dialog = DualProgressDialog("Mover archivos seleccionados", parent)
     progress_dialog.show()
 
@@ -680,24 +833,12 @@ def move_selected_files(parent, model):
         remove_selected_numbering,
         reorganize_destination,
         reorganize_source,
+        folder_cache=parent.file_utils.folder_cache,
+        foobar_enabled=foobar_enabled,
+        old_to_new_paths=old_to_new_paths,
     )
 
-    def on_finished():
-        progress_dialog.close()
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=True,
-            )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(target_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
-        )
+    def on_finished(source_files, destination_files):
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -708,23 +849,17 @@ def move_selected_files(parent, model):
                 "Los archivos seleccionados fueron movidos. La carpeta de origen "
                 "fue reorganizada y la carpeta de destino existente no fue modificada."
             )
-        QMessageBox.information(parent, "Éxito", message)
+        _finish_move_with_progress(parent, model, progress_dialog, message)
 
     def on_error(message):
         progress_dialog.close()
-        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
-        # canción desde su ruta original si la operación no terminó correctamente.
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=False,
-            )
+        # La tarea ya revirtió los cambios y restauró Foobar2000 en segundo plano.
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)
@@ -852,14 +987,6 @@ def move_selected_files_to_year_subfolder(parent, model):
         if Path(source).resolve() in selected_resolved
     }
 
-    foobar_state = None
-    if foobar_enabled:
-        foobar_state = capture_foobar_file_move_state(
-            Foobar2000Api(),
-            old_to_new_paths,
-            source_folder=source_folder,
-        )
-
     progress_dialog = DualProgressDialog("Mover archivos a subcarpeta por año", parent)
     progress_dialog.show()
 
@@ -870,24 +997,12 @@ def move_selected_files_to_year_subfolder(parent, model):
         remove_selected_numbering,
         reorganize_destination,
         reorganize_source,
+        folder_cache=parent.file_utils.folder_cache,
+        foobar_enabled=foobar_enabled,
+        old_to_new_paths=old_to_new_paths,
     )
 
-    def on_finished():
-        progress_dialog.close()
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=True,
-            )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(target_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
-        )
+    def on_finished(source_files, destination_files):
         if reorganize_destination:
             message = (
                 "Los archivos seleccionados fueron movidos y la numeración de las "
@@ -898,23 +1013,17 @@ def move_selected_files_to_year_subfolder(parent, model):
                 "Los archivos seleccionados fueron movidos. La carpeta de origen "
                 "fue reorganizada y la carpeta de destino existente no fue modificada."
             )
-        QMessageBox.information(parent, "Éxito", message)
+        _finish_move_with_progress(parent, model, progress_dialog, message)
 
     def on_error(message):
         progress_dialog.close()
-        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
-        # canción desde su ruta original si la operación no terminó correctamente.
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=False,
-            )
+        # La tarea ya revirtió los cambios y restauró Foobar2000 en segundo plano.
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)
@@ -1043,14 +1152,6 @@ def move_selected_to_trash(parent, model):
         if Path(source).resolve() in selected_resolved
     }
 
-    foobar_state = None
-    if foobar_enabled:
-        foobar_state = capture_foobar_file_move_state(
-            Foobar2000Api(),
-            old_to_new_paths,
-            source_folder=source_folder,
-        )
-
     progress_dialog = DualProgressDialog("Mover archivos a papelera", parent)
     progress_dialog.show()
 
@@ -1061,48 +1162,30 @@ def move_selected_to_trash(parent, model):
         remove_selected_numbering,
         False,
         reorganize_source,
+        folder_cache=parent.file_utils.folder_cache,
+        foobar_enabled=foobar_enabled,
+        old_to_new_paths=old_to_new_paths,
     )
 
-    def on_finished():
-        progress_dialog.close()
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=True,
-            )
-        parent.file_utils.sync_folder_cache(source_folder)
-        parent.file_utils.sync_folder_cache(trash_folder)
-        model.set_all_checked(False)
-        parent.file_utils.load_folder(
-            parent,
-            model,
-            on_loaded=parent.select_first_file,
-        )
-        QMessageBox.information(
-            parent,
-            "Éxito",
+    def on_finished(source_files, destination_files):
+        message = (
             "Los archivos seleccionados fueron movidos al destino guardado en QSettings. "
             + (
                 "La carpeta de origen fue reorganizada."
                 if reorganize_source
                 else "La carpeta de origen no estaba numerada y no fue alterada."
-            ),
+            )
         )
+        _finish_move_with_progress(parent, model, progress_dialog, message)
 
     def on_error(message):
         progress_dialog.close()
-        if foobar_state is not None:
-            restore_foobar_after_file_move(
-                foobar_state,
-                source_folder,
-                successful=False,
-            )
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
             model,
             on_loaded=parent.select_first_file,
+            force_refresh=True,
         )
 
     task.signals.progress.connect(progress_dialog.update_progress)

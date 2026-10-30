@@ -17,15 +17,12 @@ class WorkerSignals(QObject):
     error = pyqtSignal(str)                              # error message
 
 
-import logging
-from pathlib import Path
-from PyQt6.QtCore import QRunnable, pyqtSlot, QThread # <- Importamos QThread
-
 class LoadFolderTask(QRunnable):
-    def __init__(self, folder_path, file_utils):
+    def __init__(self, folder_path, file_utils, force_refresh=False):
         super().__init__()
         self.folder_path = Path(folder_path)
         self.file_utils = file_utils
+        self.force_refresh = force_refresh
         self.signals = WorkerSignals()
         self._is_killed = False # <- Bandera para controlar la cancelación
 
@@ -52,7 +49,17 @@ class LoadFolderTask(QRunnable):
             if self._is_killed: return # Check antes de leer archivos
 
             self.signals.progress.emit(0, 0, "Leyendo archivos...", 1, 1, "Cargando carpeta (Etapa 1 de 1)")
-            files = self.file_utils.folder_cache.list_files(self.folder_path, excluded_prefix=TEMP_PREFIX)
+            files = None
+            if not self.force_refresh:
+                files = self.file_utils.folder_cache.get_cached_files(
+                    self.folder_path,
+                    excluded_prefix=TEMP_PREFIX,
+                )
+            if files is None:
+                files = self.file_utils.folder_cache.list_files(
+                    self.folder_path,
+                    excluded_prefix=TEMP_PREFIX,
+                )
             total = len(files)
             logger.info("Carpeta %r: %d archivos detectados", self.folder_path, total)
 
@@ -72,8 +79,8 @@ class LoadFolderTask(QRunnable):
                     f"Cargando archivo {index}/{total}: {safe_display_text(path.name)}",
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
-                
-                # REEMPLAZO: Dormimos 50 milisegundos de forma nativa en Qt
+
+                # Pausa intencional para espaciar la inserción de archivos en la vista.
                 QThread.msleep(50)
 
             logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)

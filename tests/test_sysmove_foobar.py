@@ -152,12 +152,16 @@ class TestMoveSelectedToTrash(unittest.TestCase):
         with patch("sysmove.QThreadPool.globalInstance") as mock_pool, \
              patch("sysmove.DualProgressDialog"):
 
+            # Run the QRunnable synchronously in this test. Foobar2000 capture
+            # now belongs to the worker, not the UI callback.
+            mock_pool.return_value.start.side_effect = lambda task: task.run()
+
             move_selected_to_trash(mock_parent, mock_model)
 
             # Verify omit_fb=True was passed to get_locking_processes
             mock_get_locking.assert_called_once_with([self.file1], omit_fb=True)
 
-            # Verify capture_foobar_file_move_state was called
+            # Verify capture_foobar_file_move_state runs inside MoveSelectedTask.
             mock_capture_foobar.assert_called_once()
             call_args = mock_capture_foobar.call_args
             old_to_new = call_args[0][1]
