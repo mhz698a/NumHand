@@ -168,6 +168,11 @@ class FolderCache:
                 "WHERE folder_path = ?",
                 (key,),
             ).fetchone()
+            if row and row[0] == directory_mtime_ns:
+                connection.execute(
+                    "UPDATE folder_cache SET last_access = ? WHERE folder_path = ?",
+                    (time.time(), key),
+                )
 
         if not row or row[0] != directory_mtime_ns:
             return None
