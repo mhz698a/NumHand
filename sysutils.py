@@ -4,7 +4,7 @@ import re
 
 import shutil
 from pathlib import Path
-from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot, QThread
+from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
 
 from wutils_sysfiles import rename_with_retry, clean_prefix
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -16,10 +16,6 @@ class WorkerSignals(QObject):
     finished = pyqtSignal(object)                         # result payload
     error = pyqtSignal(str)                              # error message
 
-
-import logging
-from pathlib import Path
-from PyQt6.QtCore import QRunnable, pyqtSlot, QThread # <- Importamos QThread
 
 class LoadFolderTask(QRunnable):
     def __init__(self, folder_path, file_utils, force_refresh=False):
@@ -84,8 +80,6 @@ class LoadFolderTask(QRunnable):
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
                 
-                # REEMPLAZO: Dormimos 50 milisegundos de forma nativa en Qt
-                QThread.msleep(50)
 
             logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)
             self.signals.finished.emit(total)
