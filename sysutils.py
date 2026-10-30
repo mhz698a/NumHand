@@ -4,7 +4,7 @@ import re
 
 import shutil
 from pathlib import Path
-from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot, QThread
 
 from wutils_sysfiles import rename_with_retry, clean_prefix
 from wconst import BACKUP_FILENAME, TEMP_PREFIX
@@ -79,7 +79,8 @@ class LoadFolderTask(QRunnable):
                     f"Cargando archivo {index}/{total}: {safe_display_text(path.name)}",
                     1, 1, "Cargando carpeta (Etapa 1 de 1)"
                 )
-                
+            
+                QThread.msleep(50)
 
             logger.info("Carga de carpeta terminada: %r (%d archivos)", self.folder_path, total)
             self.signals.finished.emit(total)
