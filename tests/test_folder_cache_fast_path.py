@@ -1,4 +1,4 @@
-from pathlib import Path
+import os
 
 import pytest
 
@@ -35,7 +35,6 @@ def test_get_cached_files_invalidates_when_directory_timestamp_changes(tmp_path)
 
     info = folder.stat()
     os_mtime_ns = info.st_mtime_ns + 1_000_000_000
-    import os
     os.utime(folder, ns=(info.st_atime_ns, os_mtime_ns))
 
     assert cache.get_cached_files(folder) is None
