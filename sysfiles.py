@@ -31,16 +31,25 @@ class FileUtils:
         self.thread_pool = QThreadPool.globalInstance()
         self.folder_cache = FolderCache()
 
-    def sync_folder_cache(self, folder):
-        """Refresh cache after a mutation without turning cache failures into file-operation failures."""
+    def sync_folder_cache(self, folder, files=None):
+        """Refresh a folder listing without turning cache failures into operation failures.
+
+        Pass known resulting paths after managed file operations to avoid
+        enumerating the directory again.
+        """
         if not folder:
-            return
+            return None
         try:
             path = Path(folder)
             if path.is_dir():
-                self.folder_cache.sync_folder(path, excluded_prefix=TEMP_PREFIX)
+                return self.folder_cache.sync_folder(
+                    path,
+                    excluded_prefix=TEMP_PREFIX,
+                    files=files,
+                )
         except Exception as error:
             logging.warning("No se pudo sincronizar la cache de %s: %s", folder, error)
+        return None
 
     def select_folder(self, parent, model):
         folder = QFileDialog.getExistingDirectory(
@@ -66,8 +75,8 @@ class FileUtils:
         self.load_folder(parent, model)
         
 
-    def load_folder(self, parent, model, on_loaded=None):
-        """Carga la carpeta en segundo plano y ejecuta on_loaded al terminar."""
+    def load_folder(self, parent, model, on_loaded=None, force_refresh=False):
+        """Carga la carpeta en segundo plano; force_refresh omite la lista cacheada."""
         if not parent.folder or not parent.folder.exists():
             return
 
@@ -85,7 +94,7 @@ class FileUtils:
                 selection_model.clearCurrentIndex()
 
         model.clear_files()
-        task = LoadFolderTask(parent.folder, self)
+        task = LoadFolderTask(parent.folder, self, force_refresh=force_refresh)
 
         def on_finished(files_loaded):
             self.progress_dialog.close()
