@@ -194,11 +194,13 @@ class FolderCache:
         _sort_names(paths, lambda path: path.name)
         return paths
 
-    def _cache_known_files(self, folder, files, excluded_prefix):
+    def _cache_known_files(self, folder, files, excluded_prefix, progress_callback=None):
         """Persist a caller-supplied listing without scanning the directory."""
         records = []
         total_size = 0
-        for value in files:
+        files = list(files)
+        total_files = len(files)
+        for index, value in enumerate(files, start=1):
             path = Path(value)
             if not path.is_absolute():
                 path = folder / path
@@ -212,6 +214,8 @@ class FolderCache:
                 continue
             records.append((path.name, info.st_size, info.st_mtime_ns))
             total_size += info.st_size
+            if progress_callback is not None:
+                progress_callback(index, total_files, path)
 
         _sort_names(records, lambda record: record[0])
         fingerprint = json.dumps(records, ensure_ascii=True, separators=(",", ":"))
@@ -295,7 +299,13 @@ class FolderCache:
             ))
         return paths
 
-    def sync_folder(self, folder, excluded_prefix=".__file_manager__", files=None):
+    def sync_folder(
+        self,
+        folder,
+        excluded_prefix=".__file_manager__",
+        files=None,
+        progress_callback=None,
+    ):
         """Refresh the listing after a managed change.
 
         When the caller already knows the resulting paths, persist those paths
@@ -310,7 +320,12 @@ class FolderCache:
             pass
 
         if files is not None:
-            return self._cache_known_files(folder, files, excluded_prefix)
+            return self._cache_known_files(
+                folder,
+                files,
+                excluded_prefix,
+                progress_callback=progress_callback,
+            )
 
         key = self._key(folder)
         with self._connect() as connection:
