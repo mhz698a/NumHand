@@ -292,7 +292,7 @@ class MoveSelectedTask(QRunnable):
         self.old_to_new_paths = dict(old_to_new_paths or {})
         self.foobar_state = None
         self.phase_offset = 1 if self.foobar_enabled else 0
-        self.phase_total = 5 + self.phase_offset
+        self.phase_total = 5 + (2 * self.phase_offset)
         self.signals = MoveSignals()
 
     def _emit_progress(self, current, total, label, phase, phase_total, phase_label):
@@ -405,8 +405,8 @@ class MoveSelectedTask(QRunnable):
                     total_work,
                     f"Moviendo seleccionado {index}/{total_move}",
                     1 + self.phase_offset,
-                        self.phase_total,
-                        f"Moviendo archivos seleccionados (Etapa {1 + self.phase_offset} de {self.phase_total})",
+                    self.phase_total,
+                    f"Moviendo archivos seleccionados (Etapa {1 + self.phase_offset} de {self.phase_total})",
                 )
 
             self._emit_progress(
@@ -414,8 +414,8 @@ class MoveSelectedTask(QRunnable):
                 total_work,
                 "Preparando renombrado...",
                 2 + self.phase_offset,
-                    self.phase_total,
-                    f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
+                self.phase_total,
+                f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
             )
 
             if self.reorganize_destination:
@@ -437,8 +437,8 @@ class MoveSelectedTask(QRunnable):
                         total_work,
                         f"Preparando destino {index}/{len(existing_for_stage)}",
                         2 + self.phase_offset,
-                            self.phase_total,
-                            f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
+                        self.phase_total,
+                        f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
                     )
 
             source_for_stage = [source for source, _ in source_plan]
@@ -452,8 +452,8 @@ class MoveSelectedTask(QRunnable):
                     total_work,
                     f"Preparando origen {index}/{total_source}",
                     2 + self.phase_offset,
-                        self.phase_total,
-                        f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
+                    self.phase_total,
+                    f"Preparando destino y origen (Etapa {2 + self.phase_offset} de {self.phase_total})",
                 )
 
             destination_lookup = {
@@ -472,8 +472,8 @@ class MoveSelectedTask(QRunnable):
                 total_work,
                 "Aplicando cambios...",
                 3 + self.phase_offset,
-                    self.phase_total,
-                    f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
+                self.phase_total,
+                f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
             )
 
             for index, (original_source, final_name) in enumerate(
@@ -493,8 +493,8 @@ class MoveSelectedTask(QRunnable):
                     total_work,
                     f"Actualizando destino {index}/{total_destination}",
                     3 + self.phase_offset,
-                        self.phase_total,
-                        f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
+                    self.phase_total,
+                    f"Aplicando nombres definitivos (Etapa {3 + self.phase_offset} de {self.phase_total})",
                 )
 
             for index, (original_source, final_name) in enumerate(
@@ -514,8 +514,8 @@ class MoveSelectedTask(QRunnable):
                     total_work,
                     f"Reorganizando origen {index}/{total_source}",
                     4 + self.phase_offset,
-                        self.phase_total,
-                        f"Cerrando huecos en la carpeta de origen (Etapa {4 + self.phase_offset} de {self.phase_total})",
+                    self.phase_total,
+                    f"Cerrando huecos en la carpeta de origen (Etapa {4 + self.phase_offset} de {self.phase_total})",
                 )
 
             source_files_after = (
@@ -583,9 +583,9 @@ class MoveSelectedTask(QRunnable):
                     0,
                     0,
                     "Sincronizando reproducción y playlist de Foobar2000...",
-                    6,
+                    6 + self.phase_offset,
                     self.phase_total,
-                    f"Sincronizando Foobar2000 (Etapa 6 de {self.phase_total})",
+                    f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
                 )
                 restore_foobar_after_file_move(
                     self.foobar_state,
@@ -596,9 +596,9 @@ class MoveSelectedTask(QRunnable):
                     1,
                     1,
                     "Foobar2000 sincronizado",
-                    6,
+                    6 + self.phase_offset,
                     self.phase_total,
-                    f"Sincronizando Foobar2000 (Etapa 6 de {self.phase_total})",
+                    f"Sincronizando Foobar2000 (Etapa {6 + self.phase_offset} de {self.phase_total})",
                 )
 
             self.signals.finished.emit(source_files_after, destination_files_after)
@@ -847,8 +847,7 @@ def move_selected_files(parent, model):
 
     def on_error(message):
         progress_dialog.close()
-        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
-        # canción desde su ruta original si la operación no terminó correctamente.
+        # La tarea ya revirtió los cambios y restauró Foobar2000 en segundo plano.
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
@@ -1012,8 +1011,7 @@ def move_selected_files_to_year_subfolder(parent, model):
 
     def on_error(message):
         progress_dialog.close()
-        # MoveSelectedTask intenta revertir los cambios parciales; restaurar la
-        # canción desde su ruta original si la operación no terminó correctamente.
+        # La tarea ya revirtió los cambios y restauró Foobar2000 en segundo plano.
         QMessageBox.critical(parent, "Error", message)
         parent.file_utils.load_folder(
             parent,
